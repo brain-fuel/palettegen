@@ -1,0 +1,40 @@
+module palette
+
+-- JSON export of a palette, with the book's category notes attached.
+
+import "encoding/json"
+
+type CategoryNotes := {
+  Primary : String @[json "primary"];
+  Neutrals : String @[json "neutrals"];
+  Supporting : String @[json "supporting"]
+}
+
+type ExportDoc := {
+  Name : String @[json "name"];
+  Basis : String @[json "basis"];
+  Primary : Slice Scale @[json "primary"];
+  Neutrals : Slice Scale @[json "neutrals"];
+  Supporting : Slice Scale @[json "supporting"];
+  Notes : CategoryNotes @[json "categoryNotes"]
+}
+
+let noBytes () : Slice Byte := make (Slice Byte) 0
+
+-- ToJSON renders a palette as pretty JSON.
+let ToJSON (p : Palette) : Slice Byte := do {
+  let doc := ExportDoc {
+    Name = p.Name,
+    Basis = p.Basis,
+    Primary = p.Primary,
+    Neutrals = p.Neutrals,
+    Supporting = p.Supporting,
+    Notes = CategoryNotes {
+      Primary = DescPrimary,
+      Neutrals = DescNeutrals,
+      Supporting = DescSupporting
+    }
+  };
+  let bs, err := json.MarshalIndent doc "" "  ";
+  if err != nil then noBytes () else bs
+}

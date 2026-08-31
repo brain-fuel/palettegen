@@ -1,0 +1,188 @@
+module palette
+
+-- Core domain of the palette generator: types, distance metrics, and the
+-- scale-shifting algorithm derived from "Refactoring UI" (Wathan & Schoger).
+-- The 30 hand-tuned reference scales from "Color Palettes v1.1.0" act as
+-- seeds; a requested color is anchored into the nearest seed scale so the
+-- book's lightness/saturation curves are preserved.
+
+import "math"
+import "fmt"
+import "strings"
+
+type Shade := {
+  Hex : String @[json "hex"];
+  H : Float64 @[json "h"];
+  S : Float64 @[json "s"];
+  L : Float64 @[json "l"]
+}
+
+type Scale := {
+  Name : String @[json "name"];
+  Shades : Slice Shade @[json "shades"]
+}
+
+type Palette := {
+  Name : String @[json "name"];
+  Basis : String @[json "basis"];
+  Primary : Slice Scale @[json "primary"];
+  Neutrals : Slice Scale @[json "neutrals"];
+  Supporting : Slice Scale @[json "supporting"]
+}
+
+-- Circular distance between two hues, in degrees.
+let HueDistance (a : Float64) (b : Float64) : Float64 := do {
+  let d := math.Abs (a - b);
+  math.Min d (360.0 - d)
+}
+
+-- Signed shortest rotation taking hue a to hue b, in [-180, 180].
+let hueDelta (a : Float64) (b : Float64) : Float64 := do {
+  let mut d := b - a;
+  while d > 180.0 do { d := d - 360.0 };
+  while d < (-180.0) do { d := d + 360.0 };
+  d
+}
+
+let normHue (h : Float64) : Float64 := do {
+  let mut x := h;
+  while x >= 360.0 do { x := x - 360.0 };
+  while x < 0.0 do { x := x + 360.0 };
+  x
+}
+
+let clampPct (x : Float64) : Float64 :=
+  if x < 0.0 then 0.0 else if x > 100.0 then 100.0 else x
+
+-- The shade of a scale whose lightness is closest to l.
+let AnchorIndex (sc : Scale) (l : Float64) : Int := do {
+  let mut best := 0;
+  let mut bestDist := 1000.0;
+  for i, sh in sc.Shades do {
+    let d := math.Abs (sh.L - l);
+    if d < bestDist then do { best := i; bestDist := d } else ()
+  };
+  best
+}
+
+-- How far a scale's character sits from a requested color: hue dominates,
+-- saturation class breaks ties (so a muted request finds a muted seed).
+let scaleDistance (base : Shade) (sc : Scale) : Float64 := do {
+  let mid := sc.Shades[4];
+  HueDistance base.H mid.H + math.Abs (base.S - mid.S) * 0.35
+}
+
+let Nearest (base : Shade) (seeds : Slice Scale) : Scale := do {
+  let mut best := seeds[0];
+  let mut bestDist := 100000.0;
+  for _, sc in seeds do {
+    let d := scaleDistance base sc;
+    if d < bestDist then do { best := sc; bestDist := d } else ()
+  };
+  best
+}
+
+-- Re-anchor a hand-tuned seed scale onto a requested color. The requested
+-- color lands exactly on the shade nearest its lightness; hue is rotated
+-- uniformly; saturation and lightness corrections fade out toward the two
+-- ends of the scale so the seed's usable-as-text darks and tinted-background
+-- lights (the book's rule for shades 900 and 50) survive intact.
+let ShiftScale (seed : Scale) (base : Shade) (name : String) : Scale := do {
+  let a := AnchorIndex seed base.L;
+  let anchor := seed.Shades[a];
+  let dh := hueDelta anchor.H base.H;
+  let dl := base.L - anchor.L;
+  let ratio := if anchor.S > 0.0 then base.S / anchor.S else 1.0;
+  let far := math.Max (Float64 a) (Float64 (len seed.Shades - 1 - a));
+  let mut out := make (Slice Shade) 0;
+  for i, sh in seed.Shades do {
+    let w := if far > 0.0 then 1.0 - (math.Abs (Float64 (i - a))) / far else 1.0;
+    let h2 := normHue (sh.H + dh);
+    let s2 := clampPct (sh.S * (1.0 + (ratio - 1.0) * w));
+    let l2 := clampPct (sh.L + dl * w);
+    out := append out (MakeShade h2 s2 l2)
+  };
+  Scale { Name = name, Shades = out }
+}
+
+-- Name a hue the way the book names its scales.
+let HueName (h : Float64) (s : Float64) : String := do {
+  let base :=
+    if h < 15.0 then "Red"
+    else if h < 40.0 then "Orange"
+    else if h < 70.0 then "Yellow"
+    else if h < 95.0 then "Lime Green"
+    else if h < 150.0 then "Green"
+    else if h < 175.0 then "Teal"
+    else if h < 195.0 then "Cyan"
+    else if h < 215.0 then "Light Blue"
+    else if h < 250.0 then "Blue"
+    else if h < 275.0 then "Indigo"
+    else if h < 305.0 then "Purple"
+    else if h < 330.0 then "Magenta"
+    else if h < 345.0 then "Pink"
+    else "Red";
+  if s >= 70.0 then base + " (Vivid)" else base
+}
+
+-- The book's grey families, chosen by the primary hue's temperature.
+let greyFamilyFor (h : Float64) : String :=
+  if h < 20.0 then "Warm Grey"
+  else if h < 160.0 then "Grey"
+  else if h < 260.0 then "Blue Grey"
+  else if h < 330.0 then "Cool Grey"
+  else "Warm Grey"
+
+-- Pick the semantic variant (plain vs Vivid) matching the base's intensity.
+let semanticName (base : String) (s : Float64) : String :=
+  if s >= 60.0 then base + " (Vivid)" else base
+
+-- Build a complete palette around one requested color, following the book's
+-- prescription: one primary scale, temperature-matched neutrals, semantic
+-- red/yellow/green scales, plus a complementary accent scale.
+let Generate (base : Shade) : Palette := do {
+  let seed := Nearest base (ColorSeeds ());
+  let primaryName := HueName base.H base.S;
+  let primary := ShiftScale seed base primaryName;
+
+  let neutral := ReferenceOr (greyFamilyFor base.H) "Grey";
+
+  -- Semantic scales; skip one that would duplicate the primary hue.
+  let mut supporting := make (Slice Scale) 0;
+
+  let accentHue := normHue (base.H + 180.0);
+  let accentShade := Shade { Hex = "", H = accentHue, S = base.S, L = base.L };
+  let accentSeed := Nearest accentShade (ColorSeeds ());
+  let accent := ShiftScale accentSeed accentShade (HueName accentHue base.S);
+  supporting := append supporting accent;
+
+  let sems : Slice String := [semanticName "Red" base.S, semanticName "Yellow" base.S, semanticName "Green" base.S];
+  for _, sem in sems do {
+    if HasReference sem then do {
+      let sc := ReferenceOr sem "Grey";
+      if HueDistance base.H sc.Shades[4].H > 25.0
+        then do { supporting := append supporting sc }
+        else ()
+    } else ()
+  };
+
+  Palette {
+    Name = primaryName + " " + strings.ToUpper base.Hex,
+    Basis = fmt.Sprintf "Generated from %s using the Refactoring UI methodology (seed scale: %s)" (strings.ToUpper base.Hex) seed.Name,
+    Primary = [primary],
+    Neutrals = [neutral],
+    Supporting = supporting
+  }
+}
+
+-- A curated palette from the book, verbatim.
+let FromCurated (id : Int) : Palette := do {
+  let bp := CuratedAt id;
+  Palette {
+    Name = bp.Name,
+    Basis = "Refactoring UI: Color Palettes v1.1.0, " + bp.Name + " (verbatim)",
+    Primary = bp.Primary,
+    Neutrals = bp.Neutrals,
+    Supporting = bp.Supporting
+  }
+}

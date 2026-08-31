@@ -1,0 +1,188 @@
+module main
+
+-- Palette Forge: a web app that gives out complete UI color palettes.
+-- All state lives in the URL (?c=hex or ?p=id), so the whole app is plain
+-- server-side rendering: one binary, no scripts, nothing to hydrate.
+
+import "encoding/base64"
+import "fmt"
+import "io"
+import "net/http"
+import "os"
+import "strconv"
+import "strings"
+import "goforge.dev/palettegen/palette"
+
+let Version : String := "v0.1.0"
+
+type Model := {
+  Mode : String;
+  Hex : String;
+  CuratedID : Int;
+  QS : String;
+  Note : String;
+  Theme : String;
+  Pal : palette.Palette
+}
+
+-- "light" and "dark" are honored; anything else means "follow the OS".
+let sanitizeTheme (t : String) : String :=
+  if t == "light" || t == "dark" then t else ""
+
+let parseIntOr (s : String) (fallback : Int) : Int := do {
+  let n, err := strconv.Atoi s;
+  if err != nil then fallback else n
+}
+
+let sink (n : Int) (e : Error) : Unit := ()
+
+let emit (w : http.ResponseWriter) (s : String) : Unit := do {
+  let n, err := io.WriteString w s;
+  sink n err
+}
+
+let emitBytes (w : http.ResponseWriter) (bs : Slice Byte) : Unit := do {
+  let n, err := w.Write bs;
+  sink n err
+}
+
+-- The color the picker should show: the current palette's base primary.
+let pickerHex (m : Model) : String :=
+  if m.Mode == "generated" then m.Hex
+  else if len m.Pal.Primary > 0 && len m.Pal.Primary[0].Shades == 10
+    then m.Pal.Primary[0].Shades[4].Hex
+    else "#2CB1BC"
+
+let curatedModel (id : Int) (note : String) (theme : String) : Model :=
+  Model {
+    Mode = "curated",
+    Hex = "",
+    CuratedID = id,
+    QS = fmt.Sprintf "p=%d" id,
+    Note = note,
+    Theme = theme,
+    Pal = palette.FromCurated id
+  }
+
+let generatedModel (sh : palette.Shade) (theme : String) : Model :=
+  Model {
+    Mode = "generated",
+    Hex = sh.Hex,
+    CuratedID = 0,
+    QS = "c=" + strings.TrimPrefix sh.Hex "#",
+    Note = "",
+    Theme = theme,
+    Pal = palette.Generate sh
+  }
+
+-- The freshly-typed hex wins over the picker; empty means "not given".
+let pickColor (hx : String) (c : String) : String :=
+  if strings.TrimSpace hx != "" then hx else c
+
+let modelFrom (r : Ptr http.Request) : Model := do {
+  let q := (r.URL).Query ();
+  let theme := sanitizeTheme (q.Get "t");
+  let pRaw := q.Get "p";
+  let colorRaw := pickColor (q.Get "hx") (q.Get "c");
+  if pRaw != "" then do {
+    let id := parseIntOr pRaw 0;
+    if id >= 1 && id <= len (palette.Curated ())
+      then curatedModel id "" theme
+      else curatedModel 1 "That palette number does not exist - showing Palette 1." theme
+  } else if strings.TrimSpace colorRaw != "" then do {
+    let parsed := palette.ParseHex colorRaw;
+    if palette.ParsedOk parsed
+      then generatedModel (palette.ParsedShade parsed) theme
+      else curatedModel 1 "Could not read that color - showing Palette 1 instead. Try a hex like #7C3AED." theme
+  } else curatedModel 1 "" theme
+}
+
+let fileStem (m : Model) : String := do {
+  let lower := strings.ToLower m.Pal.Name;
+  let dashed := strings.ReplaceAll lower " " "-";
+  let noHash := strings.ReplaceAll dashed "#" "";
+  let noOpen := strings.ReplaceAll noHash "(" "";
+  "palette-" + strings.ReplaceAll noOpen ")" ""
+}
+
+let handlePage (w : http.ResponseWriter) (r : Ptr http.Request) : Unit := do {
+  if (r.URL).Path != "/" then http.NotFound w r else do {
+    let m := modelFrom r;
+    let h := w.Header ();
+    h.Set "Content-Type" "text/html; charset=utf-8";
+    emit w (renderPage m)
+  }
+}
+
+-- ---- self-hosted fonts (embedded via fonts.goml, decoded once) ----------
+
+let noFontBytes () : Slice Byte := make (Slice Byte) 0
+
+let decodeFont (s : String) : Slice Byte := do {
+  let enc := base64.StdEncoding;
+  let bs, err := enc.DecodeString s;
+  if err != nil then noFontBytes () else bs
+}
+
+let overpass700 := decodeFont overpass700B64
+let atkinson400 := decodeFont atkinson400B64
+let atkinson700 := decodeFont atkinson700B64
+let atkinson400i := decodeFont atkinson400iB64
+
+let fontFor (p : String) : Slice Byte :=
+  if p == "/fonts/overpass-700.woff2" then overpass700
+  else if p == "/fonts/atkinson-400.woff2" then atkinson400
+  else if p == "/fonts/atkinson-700.woff2" then atkinson700
+  else if p == "/fonts/atkinson-400-italic.woff2" then atkinson400i
+  else noFontBytes ()
+
+let handleFont (w : http.ResponseWriter) (r : Ptr http.Request) : Unit := do {
+  let bs := fontFor ((r.URL).Path);
+  if len bs == 0 then http.NotFound w r else do {
+    let h := w.Header ();
+    h.Set "Content-Type" "font/woff2";
+    h.Set "Cache-Control" "public, max-age=31536000, immutable";
+    emitBytes w bs
+  }
+}
+
+let handleCSS (w : http.ResponseWriter) (r : Ptr http.Request) : Unit := do {
+  let h := w.Header ();
+  h.Set "Content-Type" "text/css; charset=utf-8";
+  emit w stylesheet
+}
+
+let handleJSON (w : http.ResponseWriter) (r : Ptr http.Request) : Unit := do {
+  let m := modelFrom r;
+  let h := w.Header ();
+  h.Set "Content-Type" "application/json";
+  h.Set "Content-Disposition" ("attachment; filename=\"" + fileStem m + ".json\"");
+  emitBytes w (palette.ToJSON m.Pal)
+}
+
+let handlePDF (w : http.ResponseWriter) (r : Ptr http.Request) : Unit := do {
+  let m := modelFrom r;
+  let h := w.Header ();
+  h.Set "Content-Type" "application/pdf";
+  h.Set "Content-Disposition" ("attachment; filename=\"" + fileStem m + ".pdf\"");
+  let err := palette.WritePDF w m.Pal;
+  if err != nil then http.Error w "PDF generation failed" 500 else ()
+}
+
+let portFrom (env : String) : String :=
+  if strings.TrimSpace env == "" then "8383" else env
+
+let main () : Unit := do {
+  if len os.Args > 1 && os.Args[1] == "check" then do {
+    os.Exit (RunChecks ())
+  } else ();
+  http.HandleFunc "/" handlePage;
+  http.HandleFunc "/style.css" handleCSS;
+  http.HandleFunc "/fonts/" handleFont;
+  http.HandleFunc "/palette.json" handleJSON;
+  http.HandleFunc "/palette.pdf" handlePDF;
+  let port := portFrom (os.Getenv "PORT");
+  fmt.Printf "Palette Forge listening on http://localhost:%s\n" port;
+  let err := http.ListenAndServe (":" + port) nil;
+  if err != nil then panic err else ()
+}

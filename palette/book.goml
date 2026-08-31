@@ -1,0 +1,133 @@
+module palette
+
+-- Access to the book's data tables (see data.goml, generated from the
+-- extraction of "Refactoring UI: Color Palettes v1.1.0").
+
+import "fmt"
+import "strconv"
+import "strings"
+
+-- Book is one curated palette from the book, verbatim.
+type Book := {
+  ID : Int;
+  Name : String;
+  Primary : Slice Scale;
+  Neutrals : Slice Scale;
+  Supporting : Slice Scale
+}
+
+let noScales () : Slice Scale := make (Slice Scale) 0
+
+let atoiOr (s : String) (fallback : Int) : Int := do {
+  let n, err := strconv.Atoi s;
+  if err != nil then fallback else n
+}
+
+let appendParsed (shades : Slice Shade) (hx : String) : Slice Shade :=
+  match ParseHex hx with
+  | Good sh => append shades sh
+  | Bad => shades
+
+let parseShades (packed : String) : Slice Shade := do {
+  let mut shades := make (Slice Shade) 0;
+  for _, hx in strings.Fields packed do {
+    shades := appendParsed shades hx
+  };
+  shades
+}
+
+-- "Name|#HEX1 #HEX2 ..." -> Scale
+let parseScaleLine (line : String) : Scale := do {
+  let parts := strings.Split line "|";
+  Scale { Name = parts[0], Shades = parseShades parts[1] }
+}
+
+let buildReference () : Slice Scale := do {
+  let mut out := make (Slice Scale) 0;
+  for _, line in refTable do {
+    out := append out (parseScaleLine line)
+  };
+  out
+}
+
+let buildBook (pid : Int) : Book := do {
+  let mut b := Book {
+    ID = pid,
+    Name = fmt.Sprintf "Palette %d" pid,
+    Primary = noScales (),
+    Neutrals = noScales (),
+    Supporting = noScales ()
+  };
+  for _, row in curatedTable do {
+    let parts := strings.Split row "|";
+    if atoiOr parts[0] 0 == pid then do {
+      let sc := Scale { Name = parts[2], Shades = parseShades parts[3] };
+      if parts[1] == "primary" then do { b := { b with Primary = append b.Primary sc } }
+      else if parts[1] == "neutrals" then do { b := { b with Neutrals = append b.Neutrals sc } }
+      else do { b := { b with Supporting = append b.Supporting sc } }
+    } else ()
+  };
+  b
+}
+
+let buildCurated () : Slice Book := do {
+  let mut out := make (Slice Book) 0;
+  let mut pid := 1;
+  while pid <= CuratedCount do {
+    out := append out (buildBook pid);
+    pid := pid + 1
+  };
+  out
+}
+
+let referenceScales := buildReference ()
+
+let curatedPalettes := buildCurated ()
+
+-- Reference returns the book's closing reference section: 30 hand-tuned scales.
+let Reference () : Slice Scale := referenceScales
+
+-- Curated returns the book's 24 palettes, verbatim.
+let Curated () : Slice Book := curatedPalettes
+
+-- CuratedAt returns palette id (1-based); out-of-range ids clamp to 1.
+let CuratedAt (id : Int) : Book :=
+  if id < 1 || id > len curatedPalettes
+    then curatedPalettes[0]
+    else curatedPalettes[id - 1]
+
+-- ColorSeeds returns the reference scales minus the grey families —
+-- the seed pool for generated primaries and accents.
+let ColorSeeds () : Slice Scale := do {
+  let mut out := make (Slice Scale) 0;
+  for _, sc in referenceScales do {
+    if strings.Contains sc.Name "Grey" then () else do { out := append out sc }
+  };
+  out
+}
+
+let HasReference (name : String) : Bool := do {
+  let mut found := false;
+  for _, sc in referenceScales do {
+    if sc.Name == name then do { found := true } else ()
+  };
+  found
+}
+
+-- ReferenceOr finds a reference scale by name, falling back to fallback.
+let ReferenceOr (name : String) (fallback : String) : Scale := do {
+  for _, sc in referenceScales do {
+    if sc.Name == name then do { return sc } else ()
+  };
+  for _, sc in referenceScales do {
+    if sc.Name == fallback then do { return sc } else ()
+  };
+  referenceScales[0]
+}
+
+-- CategoryDescription returns the book's paragraph for a category.
+let CategoryDescription (cat : String) : String :=
+  if cat == "primary" then DescPrimary
+  else if cat == "neutrals" then DescNeutrals
+  else if cat == "supporting" then DescSupporting
+  else ""

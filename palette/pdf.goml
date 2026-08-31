@@ -1,0 +1,162 @@
+module palette
+
+-- WritePDF renders a palette in the page style of "Refactoring UI: Color
+-- Palettes": a cover, then one landscape page per scale — category heading,
+-- the book's descriptive paragraph, and the ten shades darkest to lightest
+-- in two columns with their hsl and hex forms.
+
+import "fmt"
+import "io"
+import "time"
+import "codeberg.org/go-pdf/fpdf"
+
+let pageW : Float64 := 297.0
+let pageH : Float64 := 210.0
+let marginX : Float64 := 20.0
+
+-- Ink colors: the darkest and mid blue-grey neutrals from the book.
+let inkDark := RGB { R = 16, G = 42, B = 67 }
+let inkMid := RGB { R = 98, G = 125, B = 152 }
+let inkPale := RGB { R = 240, G = 244, B = 248 }
+let inkWhite := RGB { R = 255, G = 255, B = 255 }
+
+type Section := { Title : String; Desc : String; Scales : Slice Scale }
+
+let mixInk (a : RGB) (b : RGB) (t : Float64) : RGB := do {
+  let f := fun (x : Int) (y : Int) : Int =>
+    Int (Float64 x * (1.0 - t) + Float64 y * t);
+  RGB { R = f a.R b.R, G = f a.G b.G, B = f a.B b.B }
+}
+
+let allScales (p : Palette) : Slice Scale := do {
+  let mut out := make (Slice Scale) 0;
+  for _, sc in p.Primary do { out := append out sc };
+  for _, sc in p.Neutrals do { out := append out sc };
+  for _, sc in p.Supporting do { out := append out sc };
+  out
+}
+
+let coverPage (pdf : Ptr fpdf.Fpdf) (p : Palette) : Unit := do {
+  pdf.AddPage ();
+  -- Full-bleed dark ground from the palette's own darkest neutral.
+  let mut bg := inkDark;
+  let mut fg := inkPale;
+  if len p.Neutrals > 0 && len p.Neutrals[0].Shades == 10 then do {
+    bg := RGBOf p.Neutrals[0].Shades[0];
+    fg := RGBOf p.Neutrals[0].Shades[9]
+  } else ();
+  pdf.SetFillColor bg.R bg.G bg.B;
+  pdf.Rect 0.0 0.0 pageW pageH "F";
+
+  pdf.SetTextColor fg.R fg.G fg.B;
+  pdf.SetFont "Helvetica" "" 12.0;
+  pdf.Text marginX 40.0 "UI Color Palette";
+  pdf.SetFont "Helvetica" "B" 34.0;
+  pdf.Text marginX 56.0 p.Name;
+  let faded := mixInk fg bg 0.35;
+  pdf.SetFont "Helvetica" "" 10.0;
+  pdf.SetTextColor faded.R faded.G faded.B;
+  pdf.Text marginX 66.0 p.Basis;
+  pdf.Text marginX 72.0 ("Generated " + (time.Now ()).Format "2 January 2006" +
+    " - after Refactoring UI: Color Palettes (Wathan & Schoger)");
+
+  -- A strip of every scale across the bottom, five shades each.
+  let scales := allScales p;
+  if len scales == 0 then () else do {
+    let stripW := (pageW - 2.0 * marginX) / Float64 (len scales);
+    let y := pageH - 70.0;
+    for i, sc in scales do {
+      if len sc.Shades < 10 then () else do {
+        let mut j := 0;
+        while j < 5 do {
+          let c := RGBOf sc.Shades[1 + j * 2];
+          pdf.SetFillColor c.R c.G c.B;
+          pdf.Rect (marginX + Float64 i * stripW) (y + Float64 j * 8.0) (stripW - 3.0) 8.0 "F";
+          j := j + 1
+        }
+      }
+    }
+  }
+}
+
+let scalePage (pdf : Ptr fpdf.Fpdf) (p : Palette) (sec : Section) (idx : Int) (count : Int) (sc : Scale) : Unit := do {
+  pdf.AddPage ();
+
+  -- Eyebrow
+  pdf.SetFont "Helvetica" "" 9.0;
+  pdf.SetTextColor inkMid.R inkMid.G inkMid.B;
+  pdf.Text marginX 18.0 (fmt.Sprintf "%s  -  UI Color Palette" p.Name);
+
+  -- Category heading; when a category has several scales, number them.
+  let title :=
+    if count > 1
+      then fmt.Sprintf "%s %d of %d" sec.Title (idx + 1) count
+      else sec.Title;
+  pdf.SetFont "Helvetica" "B" 24.0;
+  pdf.SetTextColor inkDark.R inkDark.G inkDark.B;
+  pdf.Text marginX 34.0 title;
+
+  -- The book's paragraph for this category.
+  pdf.SetFont "Helvetica" "" 10.5;
+  pdf.SetTextColor inkMid.R inkMid.G inkMid.B;
+  pdf.SetXY marginX 40.0;
+  pdf.MultiCell 175.0 5.2 sec.Desc "" "L" false;
+
+  -- Scale name, book-style: prominent, right-aligned.
+  pdf.SetFont "Helvetica" "B" 15.0;
+  pdf.SetTextColor inkDark.R inkDark.G inkDark.B;
+  let nameW := pdf.GetStringWidth sc.Name;
+  pdf.Text (pageW - marginX - nameW) 34.0 sc.Name;
+
+  -- Ten swatches: two columns of five, darkest first.
+  let top := 68.0;
+  let gap := 4.0;
+  let cellH := 22.0;
+  let colW := (pageW - 2.0 * marginX - 8.0) / 2.0;
+  for i, sh in sc.Shades do {
+    let col := i / 5;
+    let row := i % 5;
+    let x := marginX + Float64 col * (colW + 8.0);
+    let y := top + Float64 row * (cellH + gap);
+
+    let c := RGBOf sh;
+    pdf.SetFillColor c.R c.G c.B;
+    pdf.RoundedRect x y colW cellH 2.5 "1234" "F";
+
+    -- Contrast-aware labels, per the book's perceived-brightness rule.
+    let ink := if LumaOf sh > 150.0 then inkDark else inkWhite;
+    pdf.SetTextColor ink.R ink.G ink.B;
+    let cy := y + cellH / 2.0 + 1.6;
+    pdf.SetFont "Helvetica" "" 10.0;
+    pdf.Text (x + 7.0) cy (fmt.Sprintf "hsl(%d, %d%%, %d%%)" (Int sh.H) (Int sh.S) (Int sh.L));
+    pdf.SetFont "Courier" "B" 11.0;
+    let hexW := pdf.GetStringWidth sh.Hex;
+    pdf.Text (x + colW - 7.0 - hexW) cy sh.Hex
+  };
+
+  -- Footer
+  pdf.SetFont "Helvetica" "" 8.0;
+  pdf.SetTextColor inkMid.R inkMid.G inkMid.B;
+  pdf.Text marginX (pageH - 12.0) "Shades run darkest (900) to lightest (50). Method: Refactoring UI, chapter on building color palettes."
+}
+
+-- WritePDF renders the palette to w. Returns nil on success.
+let WritePDF (w : io.Writer) (p : Palette) : Error := do {
+  let pdf := fpdf.New "L" "mm" "A4" "";
+  pdf.SetTitle (p.Name + " - UI Color Palette") true;
+  pdf.SetAutoPageBreak false 0.0;
+
+  coverPage pdf p;
+
+  let sections : Slice Section := [
+    Section { Title = "Primary", Desc = DescPrimary, Scales = p.Primary },
+    Section { Title = "Neutrals", Desc = DescNeutrals, Scales = p.Neutrals },
+    Section { Title = "Supporting", Desc = DescSupporting, Scales = p.Supporting }
+  ];
+  for _, sec in sections do {
+    for i, sc in sec.Scales do {
+      scalePage pdf p sec i (len sec.Scales) sc
+    }
+  };
+  pdf.Output w
+}

@@ -1,0 +1,283 @@
+module main
+
+-- The page, rendered server-side as HTML. One screen, one purpose
+-- (Natoli); an empowerment promise up top, consistent landmarks, and
+-- teaching-by-role captions (Winston); whitespace and soft depth over
+-- chrome (Leonardo) - the swatches themselves are the art.
+--
+-- The in-context tiles keep their inline palette colors in both color
+-- schemes: they demonstrate the generated palette, not the app's chrome.
+
+import "fmt"
+import "strings"
+import "goforge.dev/palettegen/palette"
+
+let inkFor (sh : palette.Shade) : String :=
+  if palette.LumaOf sh > 150.0 then "#102A43" else "#FFFFFF"
+
+let hslLabel (sh : palette.Shade) : String :=
+  fmt.Sprintf "hsl(%d, %d%%, %d%%)" (Int sh.H) (Int sh.S) (Int sh.L)
+
+let escapeHTML (s : String) : String :=
+  strings.ReplaceAll (strings.ReplaceAll (strings.ReplaceAll s "&" "&amp;") "<" "&lt;") ">" "&gt;"
+
+let swatchCell (sh : palette.Shade) : String :=
+  "<div class=\"sw\" style=\"background:" + sh.Hex + ";color:" + inkFor sh + "\">" +
+    "<span class=\"sw-hex\">" + sh.Hex + "</span>" +
+    "<span class=\"sw-hsl\">" + hslLabel sh + "</span>" +
+    "</div>"
+
+let scaleBlock (sc : palette.Scale) : String := do {
+  let mut cells := "";
+  for _, sh in sc.Shades do { cells := cells + swatchCell sh };
+  "<div class=\"scale\">" +
+    "<div class=\"scale-head\"><h4>" + sc.Name + "</h4>" +
+    "<span class=\"scale-range\">900 &#8594; 50 &#183; darkest to lightest</span></div>" +
+    "<div class=\"scale-grid\">" + cells + "</div>" +
+    "</div>"
+}
+
+let categorySection (title : String) (caption : String) (scales : Slice palette.Scale) : String := do {
+  let mut blocks := "";
+  for _, sc in scales do { blocks := blocks + scaleBlock sc };
+  "<section class=\"category\"><h3>" + title + "</h3>" +
+    "<p class=\"caption\">" + caption + "</p>" + blocks + "</section>"
+}
+
+-- ---- in-context demos: near-miss teachers -------------------------------
+
+@[derive off]
+type MaybeScale :=
+  | ScaleSome (Sc : palette.Scale)
+  | ScaleNone
+
+let isDangerHue (h : Float64) : Bool := h < 35.0 || h >= 330.0
+let isWarningHue (h : Float64) : Bool := h >= 35.0 && h < 80.0
+let isSuccessHue (h : Float64) : Bool := h >= 80.0 && h < 170.0
+
+-- Supporting scales first, then primaries: when a semantic scale was
+-- skipped because the primary already owns that hue, the primary serves.
+let contextScales (p : palette.Palette) : Slice palette.Scale := do {
+  let mut out := make (Slice palette.Scale) 0;
+  for _, sc in p.Supporting do { out := append out sc };
+  for _, sc in p.Primary do { out := append out sc };
+  out
+}
+
+let findScale (scales : Slice palette.Scale) (pred : Float64 -> Bool) : MaybeScale := do {
+  for _, sc in scales do {
+    if len sc.Shades == 10 && pred sc.Shades[4].H then do { return ScaleSome sc } else ()
+  };
+  ScaleNone
+}
+
+let alertHTML (sc : palette.Scale) (leadIn : String) (rest : String) : String := do {
+  let sh := sc.Shades;
+  "<div class=\"alert\" style=\"background:" + sh[9].Hex + ";border-left:4px solid " + sh[4].Hex +
+    ";color:" + sh[1].Hex + "\"><strong>" + leadIn + "</strong> " + rest + "</div>"
+}
+
+let alertRow (ms : MaybeScale) (leadIn : String) (rest : String) : String :=
+  match ms with
+  | ScaleSome sc => alertHTML sc leadIn rest
+  | ScaleNone => ""
+
+let tile (label : String) (body : String) : String :=
+  "<div class=\"tile\"><span class=\"tile-label\">" + label + "</span>" + body + "</div>"
+
+let chipFor (p : palette.Palette) : String := do {
+  if len p.Supporting == 0 then "" else do {
+    let su := p.Supporting[len p.Supporting - 1].Shades;
+    "<span class=\"chip\" style=\"background:" + su[8].Hex + ";color:" + su[1].Hex + "\">On track</span>"
+  }
+}
+
+-- The same card twice: once on a light ground, once on a dark one. The
+-- point is the near miss - a palette that only works on white is not done.
+let demoCard (p : palette.Palette) (dark : Bool) : String := do {
+  let pr := p.Primary[0].Shades;
+  let nu := p.Neutrals[0].Shades;
+  let ground := if dark then nu[0].Hex else nu[8].Hex;
+  let card := if dark then nu[1].Hex else "#FFFFFF";
+  let head := if dark then nu[9].Hex else nu[0].Hex;
+  let body := if dark then nu[7].Hex else nu[3].Hex;
+  let ghostInk := if dark then pr[7].Hex else pr[2].Hex;
+  "<div class=\"tile-body ground\" style=\"background:" + ground + "\">" +
+    "<div class=\"demo-card\" style=\"background:" + card + "\">" +
+    "<h3 style=\"color:" + head + ";margin:0\">Quarterly report</h3>" +
+    "<p style=\"color:" + body + "\">Revenue is up 12% since the redesign shipped. The board wants details Thursday.</p>" +
+    chipFor p +
+    "<div class=\"demo-actions\">" +
+    "<button type=\"button\" class=\"demo-btn\" style=\"background:" + pr[4].Hex + ";color:" + inkFor pr[4] + "\">Share report</button>" +
+    "<button type=\"button\" class=\"demo-btn\" style=\"background:transparent;color:" + ghostInk + ";box-shadow: inset 0 0 0 1.5px " + pr[4].Hex + "\">Export</button>" +
+    "</div></div></div>"
+}
+
+let alertsTile (p : palette.Palette) : String := do {
+  let pool := contextScales p;
+  let nu := p.Neutrals[0].Shades;
+  let rows :=
+    alertRow (findScale pool isSuccessHue) "Saved." "Your palette is safely in the export." +
+    alertRow (findScale pool isWarningHue) "Heads up." "Very light text needs the darker shades to stay readable." +
+    alertRow (findScale pool isDangerHue) "Export failed." "The disk is full; nothing was written.";
+  let content := if rows == "" then "<p class=\"caption\">This palette carries no semantic hues.</p>" else rows;
+  "<div class=\"tile-body ground\" style=\"background:" + nu[9].Hex + "\">" + content + "</div>"
+}
+
+let navTile (p : palette.Palette) : String := do {
+  let pr := p.Primary[0].Shades;
+  "<div class=\"tile-body\"><div class=\"nav-demo\" style=\"background:" + pr[0].Hex + "\">" +
+    "<strong style=\"color:" + pr[9].Hex + "\">Forge</strong>" +
+    "<a style=\"color:" + pr[7].Hex + "\">Overview</a>" +
+    "<a style=\"background:" + pr[4].Hex + ";color:" + inkFor pr[4] + "\">Reports</a>" +
+    "<a style=\"color:" + pr[7].Hex + "\">Settings</a>" +
+    "</div></div>"
+}
+
+let typeTile (p : palette.Palette) : String := do {
+  let nu := p.Neutrals[0].Shades;
+  "<div class=\"tile-body ground type-demo\" style=\"background:" + nu[9].Hex + "\">" +
+    "<p style=\"color:" + nu[0].Hex + ";font-size:20px;font-weight:700\">Dashboard</p>" +
+    "<p style=\"color:" + nu[3].Hex + "\">Hierarchy comes from the greys: darkest for headings, mid for body text.</p>" +
+    "<p style=\"color:" + nu[5].Hex + ";font-size:13px\">Caption and metadata &#183; updated 12 minutes ago</p>" +
+    "</div>"
+}
+
+let formTile (p : palette.Palette) : String := do {
+  let pr := p.Primary[0].Shades;
+  let nu := p.Neutrals[0].Shades;
+  "<div class=\"tile-body ground\" style=\"background:" + nu[9].Hex + "\">" +
+    "<label style=\"color:" + nu[2].Hex + "\">Work email</label>" +
+    "<input type=\"text\" class=\"mock-input\" placeholder=\"you@example.com\" aria-label=\"Work email (demo)\" style=\"background:#FFFFFF;border:1px solid " + nu[6].Hex + ";color:" + nu[1].Hex + "\">" +
+    "<label style=\"color:" + nu[2].Hex + "\">Team name (focused)</label>" +
+    "<input type=\"text\" class=\"mock-input\" value=\"Design systems\" aria-label=\"Team name (demo)\" style=\"background:#FFFFFF;border:1px solid " + pr[4].Hex + ";box-shadow:0 0 0 3px " + pr[8].Hex + ";color:" + nu[1].Hex + "\">" +
+    "<button type=\"button\" class=\"demo-btn\" style=\"background:" + pr[4].Hex + ";color:" + inkFor pr[4] + "\">Create team</button>" +
+    "</div>"
+}
+
+let contextSection (p : palette.Palette) : String := do {
+  if len p.Primary == 0 || len p.Neutrals == 0 then "" else do {
+    if len p.Primary[0].Shades != 10 || len p.Neutrals[0].Shades != 10 then "" else
+      "<section class=\"category\"><h3>In context</h3>" +
+        "<p class=\"caption\">A palette only proves itself in use. The same colors doing their actual jobs - and doing them on light and dark grounds alike.</p>" +
+        "<div class=\"context-grid\">" +
+        tile "On a light ground" (demoCard p false) +
+        tile "On a dark ground" (demoCard p true) +
+        tile "Semantic alerts" (alertsTile p) +
+        tile "Text hierarchy" (typeTile p) +
+        tile "Navigation" (navTile p) +
+        tile "Forms &amp; focus" (formTile p) +
+        "</div></section>"
+  }
+}
+
+-- ---- chrome -------------------------------------------------------------
+
+let themeLink (m : Model) (value : String) (label : String) : String := do {
+  let href := if value == "" then "/?" + m.QS else "/?" + m.QS + "&amp;t=" + value;
+  let cls := if m.Theme == value then " class=\"on\"" else "";
+  "<a" + cls + " href=\"" + href + "\">" + label + "</a>"
+}
+
+let themeToggle (m : Model) : String :=
+  "<nav class=\"theme-toggle\" aria-label=\"Color scheme\">" +
+    themeLink m "" "Auto" +
+    themeLink m "light" "Light" +
+    themeLink m "dark" "Dark" +
+    "</nav>"
+
+let themeField (m : Model) : String :=
+  if m.Theme == "" then ""
+  else "<input type=\"hidden\" name=\"t\" value=\"" + m.Theme + "\">"
+
+let curatedOptions (selectedID : Int) : String := do {
+  let mut out := "";
+  for _, b in palette.Curated () do {
+    let mark := if b.ID == selectedID then " selected" else "";
+    let mut names := "";
+    for _, sc in b.Primary do {
+      names := if names == "" then sc.Name else names + " + " + sc.Name
+    };
+    out := out + fmt.Sprintf "<option value=\"%d\"%s>Palette %d &#183; %s</option>" b.ID mark b.ID names
+  };
+  out
+}
+
+let controls (m : Model) : String :=
+  "<div class=\"controls\">" +
+    "<form class=\"gen\" method=\"get\" action=\"/\">" +
+    themeField m +
+    "<label class=\"field\"><span>Starting color</span>" +
+    "<input type=\"color\" name=\"c\" value=\"" + pickerHex m + "\"></label>" +
+    "<label class=\"field\"><span>Exact hex (optional, wins if filled)</span>" +
+    "<input type=\"text\" name=\"hx\" placeholder=\"" + pickerHex m + "\" " +
+    "pattern=\"#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\"></label>" +
+    "<button class=\"primary\" type=\"submit\">Generate palette</button>" +
+    "</form>" +
+    "<form class=\"curated\" method=\"get\" action=\"/\">" +
+    themeField m +
+    "<label class=\"field\"><span>Or start from the book</span>" +
+    "<select name=\"p\">" + curatedOptions m.CuratedID + "</select></label>" +
+    "<button class=\"ghost\" type=\"submit\">Open book palette</button>" +
+    "</form>" +
+    "</div>"
+
+let jsonSection (m : Model) : String :=
+  "<section class=\"category\"><h3>Take it with you</h3>" +
+    "<p class=\"caption\">The buttons above download files; this block is for pasting straight into a tailwind config, a theme file, or a teammate's chat.</p>" +
+    "<details class=\"json-view\"><summary>Show the JSON</summary>" +
+    "<pre><code>" + escapeHTML (String (palette.ToJSON m.Pal)) + "</code></pre>" +
+    "</details></section>"
+
+let resultSection (m : Model) : String :=
+  "<div class=\"result-head\"><h2>" + m.Pal.Name + "</h2>" +
+    "<div class=\"downloads\">" +
+    "<a class=\"dl pdf\" href=\"/palette.pdf?" + m.QS + "\">Download PDF</a>" +
+    "<a class=\"dl json\" href=\"/palette.json?" + m.QS + "\">Download JSON</a>" +
+    "</div></div>" +
+    "<p class=\"basis\">" + m.Pal.Basis + "</p>" +
+    categorySection "Primary" "Your product's voice. Use these for primary actions, links, navigation, icons - the splashes of color that determine the overall look." m.Pal.Primary +
+    categorySection "Neutrals" "The workhorse. Most of your UI is this: text, backgrounds, panels, borders, secondary buttons." m.Pal.Neutrals +
+    categorySection "Supporting" "The seasoning, used sparingly: success, warning and danger states, plus accents that keep the primary color special." m.Pal.Supporting +
+    contextSection m.Pal +
+    jsonSection m
+
+-- The goforge.dev project metadata, worn the way the other tool pages
+-- wear it: a version pill, the install command, and the standard links.
+let projectMeta () : String :=
+  "<div class=\"meta\">" +
+    "<span class=\"pill\"><span class=\"dot\"></span>" + Version + "</span>" +
+    "<code class=\"install\"><span class=\"prompt\">$</span> go install goforge.dev/palettegen@latest</code>" +
+    "<nav class=\"meta-links\" aria-label=\"Project links\">" +
+    "<a href=\"https://github.com/brain-fuel/palettegen\">Source repository</a>" +
+    "<a href=\"https://pkg.go.dev/goforge.dev/palettegen\">pkg.go.dev</a>" +
+    "<a href=\"https://goforge.dev/\">goforge.dev</a>" +
+    "</nav></div>"
+
+let noteBanner (m : Model) : String :=
+  if m.Note == "" then "" else "<p class=\"note\">" + m.Note + "</p>"
+
+let htmlAttrs (m : Model) : String :=
+  if m.Theme == "" then "" else " data-theme=\"" + m.Theme + "\""
+
+let renderPage (m : Model) : String :=
+  "<!doctype html>\n<html lang=\"en\"" + htmlAttrs m + ">\n<head>\n" +
+    "<meta charset=\"utf-8\">\n" +
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
+    "<title>Palette Forge - complete UI color palettes</title>\n" +
+    "<link rel=\"stylesheet\" href=\"/style.css\">\n" +
+    "<style>\n" + ThemeCSS m.Pal + "\n</style>\n" +
+    "</head>\n<body>\n<main>\n" +
+    "<header class=\"hero\">" +
+    "<div class=\"hero-top\"><h1>Palette <span class=\"fleck\">Forge</span></h1>" + themeToggle m + "</div>" +
+    "<p class=\"promise\">Pick one color. In seconds you have the full system a real interface needs - ten shades each of a primary, matched neutrals, and supporting colors - not five pretty swatches that fall apart in practice.</p>" +
+    projectMeta () +
+    "</header>\n" +
+    noteBanner m +
+    controls m +
+    resultSection m +
+    "\n<footer>Palettes and method from <em>Refactoring UI: Color Palettes</em> and <em>Refactoring UI</em> (Adam Wathan &amp; Steve Schoger). " +
+    "UX after Joe Natoli; UI after Leonardo da Vinci and Patrick Henry Winston. " +
+    "Written in goml on the <a href=\"https://goforge.dev\">goforge</a> toolchain. " +
+    "<a href=\"https://github.com/brain-fuel/palettegen/blob/main/LICENSE\">MIT licensed</a>.</footer>\n" +
+    "</main>\n</body>\n</html>\n"
