@@ -1,4 +1,4 @@
-module main
+module web
 
 -- The page, rendered server-side as HTML. One screen, one purpose
 -- (Natoli); an empowerment promise up top, consistent landmarks, and
@@ -8,6 +8,8 @@ module main
 -- The in-context tiles keep their inline palette colors in both color
 -- schemes: they demonstrate the generated palette, not the app's chrome.
 
+import "bytes"
+import "encoding/base64"
 import "fmt"
 import "strings"
 import "goforge.dev/palettegen/palette"
@@ -174,7 +176,7 @@ let contextSection (p : palette.Palette) : String := do {
 -- ---- chrome -------------------------------------------------------------
 
 let themeLink (m : Model) (value : String) (label : String) : String := do {
-  let href := if value == "" then "/?" + m.QS else "/?" + m.QS + "&amp;t=" + value;
+  let href := if value == "" then "?" + m.QS else "?" + m.QS + "&amp;t=" + value;
   let cls := if m.Theme == value then " class=\"on\"" else "";
   "<a" + cls + " href=\"" + href + "\">" + label + "</a>"
 }
@@ -205,7 +207,7 @@ let curatedOptions (selectedID : Int) : String := do {
 
 let controls (m : Model) : String :=
   "<div class=\"controls\">" +
-    "<form class=\"gen\" method=\"get\" action=\"/\">" +
+    "<form class=\"gen\" method=\"get\">" +
     themeField m +
     "<label class=\"field\"><span>Starting color</span>" +
     "<input type=\"color\" name=\"c\" value=\"" + pickerHex m + "\"></label>" +
@@ -214,7 +216,7 @@ let controls (m : Model) : String :=
     "pattern=\"#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\"></label>" +
     "<button class=\"primary\" type=\"submit\">Generate palette</button>" +
     "</form>" +
-    "<form class=\"curated\" method=\"get\" action=\"/\">" +
+    "<form class=\"curated\" method=\"get\">" +
     themeField m +
     "<label class=\"field\"><span>Or start from the book</span>" +
     "<select name=\"p\">" + curatedOptions m.CuratedID + "</select></label>" +
@@ -229,11 +231,34 @@ let jsonSection (m : Model) : String :=
     "<pre><code>" + escapeHTML (String (palette.ToJSON m.Pal)) + "</code></pre>" +
     "</details></section>"
 
+let b64OfBytes (bs : Slice Byte) : String := do {
+  let enc := base64.StdEncoding;
+  enc.EncodeToString bs
+}
+
+let noBuf () : Slice Byte := make (Slice Byte) 0
+
+let pdfDataURL (p : palette.Palette) : String := do {
+  let buf := bytes.NewBuffer (noBuf ());
+  let err := palette.WritePDF buf p;
+  if err != nil then "" else "data:application/pdf;base64," + b64OfBytes (buf.Bytes ())
+}
+
+let jsonDataURL (p : palette.Palette) : String :=
+  "data:application/json;base64," + b64OfBytes (palette.ToJSON p)
+
+-- Server pages link the endpoints; the wasm build hands out the files
+-- directly as data: URLs, since there is no server behind it.
+let downloadLinks (m : Model) : String :=
+  if m.Embed
+    then ("<a class=\"dl pdf\" download=\"" + FileStem m + ".pdf\" href=\"" + pdfDataURL m.Pal + "\">Download PDF</a>" +
+      "<a class=\"dl json\" download=\"" + FileStem m + ".json\" href=\"" + jsonDataURL m.Pal + "\">Download JSON</a>")
+    else ("<a class=\"dl pdf\" href=\"palette.pdf?" + m.QS + "\">Download PDF</a>" +
+      "<a class=\"dl json\" href=\"palette.json?" + m.QS + "\">Download JSON</a>")
+
 let resultSection (m : Model) : String :=
   "<div class=\"result-head\"><h2>" + m.Pal.Name + "</h2>" +
-    "<div class=\"downloads\">" +
-    "<a class=\"dl pdf\" href=\"/palette.pdf?" + m.QS + "\">Download PDF</a>" +
-    "<a class=\"dl json\" href=\"/palette.json?" + m.QS + "\">Download JSON</a>" +
+    "<div class=\"downloads\">" + downloadLinks m +
     "</div></div>" +
     "<p class=\"basis\">" + m.Pal.Basis + "</p>" +
     categorySection "Primary" "Your product's voice. Use these for primary actions, links, navigation, icons - the splashes of color that determine the overall look." m.Pal.Primary +
@@ -260,13 +285,18 @@ let noteBanner (m : Model) : String :=
 let htmlAttrs (m : Model) : String :=
   if m.Theme == "" then "" else " data-theme=\"" + m.Theme + "\""
 
-let renderPage (m : Model) : String :=
+let headAssets (m : Model) : String :=
+  if m.Embed
+    then "<style>\n" + EmbeddedCSS m.Pal + "\n</style>\n"
+    else ("<link rel=\"stylesheet\" href=\"style.css\">\n" +
+      "<style>\n" + ThemeCSS m.Pal + "\n</style>\n")
+
+let RenderPage (m : Model) : String :=
   "<!doctype html>\n<html lang=\"en\"" + htmlAttrs m + ">\n<head>\n" +
     "<meta charset=\"utf-8\">\n" +
     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
     "<title>Palette Forge - complete UI color palettes</title>\n" +
-    "<link rel=\"stylesheet\" href=\"/style.css\">\n" +
-    "<style>\n" + ThemeCSS m.Pal + "\n</style>\n" +
+    headAssets m +
     "</head>\n<body>\n<main>\n" +
     "<header class=\"hero\">" +
     "<div class=\"hero-top\"><h1>Palette <span class=\"fleck\">Forge</span></h1>" + themeToggle m + "</div>" +

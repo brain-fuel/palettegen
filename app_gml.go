@@ -4,43 +4,14 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"goforge.dev/palettegen/palette"
+	"goforge.dev/palettegen/web"
 	"io"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 )
-
-var Version string = "v0.1.0"
-
-type Model struct {
-	Mode      string
-	Hex       string
-	CuratedID int
-	QS        string
-	Note      string
-	Theme     string
-	Pal       palette.Palette
-}
-
-// "light" and "dark" are honored; anything else means "follow the OS".
-func sanitizeTheme(t string) string {
-	if t == "light" || t == "dark" {
-		return t
-	}
-	return ""
-}
-
-func parseIntOr(s string, fallback int) int {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return fallback
-	}
-	return n
-}
 
 func sink(n int, e error) {
 	return
@@ -56,61 +27,8 @@ func emitBytes(w http.ResponseWriter, bs []byte) {
 	sink(n, err)
 }
 
-// The color the picker should show: the current palette's base primary.
-func pickerHex(m Model) string {
-	if m.Mode == "generated" {
-		return m.Hex
-	}
-	if len(m.Pal.Primary) > 0 && len(m.Pal.Primary[0].Shades) == 10 {
-		return m.Pal.Primary[0].Shades[4].Hex
-	}
-	return "#2CB1BC"
-}
-
-func curatedModel(id int, note string, theme string) Model {
-	return Model{Mode: "curated", Hex: "", CuratedID: id, QS: fmt.Sprintf("p=%d", id), Note: note, Theme: theme, Pal: palette.FromCurated(id)}
-}
-
-func generatedModel(sh palette.Shade, theme string) Model {
-	return Model{Mode: "generated", Hex: sh.Hex, CuratedID: 0, QS: "c=" + strings.TrimPrefix(sh.Hex, "#"), Note: "", Theme: theme, Pal: palette.Generate(sh)}
-}
-
-// The freshly-typed hex wins over the picker; empty means "not given".
-func pickColor(hx string, c string) string {
-	if strings.TrimSpace(hx) != "" {
-		return hx
-	}
-	return c
-}
-
-func modelFrom(r *http.Request) Model {
-	q := r.URL.Query()
-	theme := sanitizeTheme(q.Get("t"))
-	pRaw := q.Get("p")
-	colorRaw := pickColor(q.Get("hx"), q.Get("c"))
-	if pRaw != "" {
-		id := parseIntOr(pRaw, 0)
-		if id >= 1 && id <= len(palette.Curated()) {
-			return curatedModel(id, "", theme)
-		}
-		return curatedModel(1, "That palette number does not exist - showing Palette 1.", theme)
-	}
-	if strings.TrimSpace(colorRaw) != "" {
-		parsed := palette.ParseHex(colorRaw)
-		if palette.ParsedOk(parsed) {
-			return generatedModel(palette.ParsedShade(parsed), theme)
-		}
-		return curatedModel(1, "Could not read that color - showing Palette 1 instead. Try a hex like #7C3AED.", theme)
-	}
-	return curatedModel(1, "", theme)
-}
-
-func fileStem(m Model) string {
-	lower := strings.ToLower(m.Pal.Name)
-	dashed := strings.ReplaceAll(lower, " ", "-")
-	noHash := strings.ReplaceAll(dashed, "#", "")
-	noOpen := strings.ReplaceAll(noHash, "(", "")
-	return "palette-" + strings.ReplaceAll(noOpen, ")", "")
+func modelFrom(r *http.Request) web.Model {
+	return web.ModelFromValues(r.URL.Query(), false)
 }
 
 func handlePage(w http.ResponseWriter, r *http.Request) {
@@ -120,49 +38,18 @@ func handlePage(w http.ResponseWriter, r *http.Request) {
 		m := modelFrom(r)
 		h := w.Header()
 		h.Set("Content-Type", "text/html; charset=utf-8")
-		emit(w, renderPage(m))
+		emit(w, web.RenderPage(m))
 	}
 }
 
-func noFontBytes() []byte {
-	return make([]byte, 0)
-}
-
-func decodeFont(s string) []byte {
-	enc := base64.StdEncoding
-	bs, err := enc.DecodeString(s)
-	if err != nil {
-		return noFontBytes()
-	}
-	return bs
-}
-
-var overpass700 = decodeFont(overpass700B64)
-
-var atkinson400 = decodeFont(atkinson400B64)
-
-var atkinson700 = decodeFont(atkinson700B64)
-
-var atkinson400i = decodeFont(atkinson400iB64)
-
-func fontFor(p string) []byte {
-	if p == "/fonts/overpass-700.woff2" {
-		return overpass700
-	}
-	if p == "/fonts/atkinson-400.woff2" {
-		return atkinson400
-	}
-	if p == "/fonts/atkinson-700.woff2" {
-		return atkinson700
-	}
-	if p == "/fonts/atkinson-400-italic.woff2" {
-		return atkinson400i
-	}
-	return noFontBytes()
+func handleCSS(w http.ResponseWriter, r *http.Request) {
+	h := w.Header()
+	h.Set("Content-Type", "text/css; charset=utf-8")
+	emit(w, web.Stylesheet)
 }
 
 func handleFont(w http.ResponseWriter, r *http.Request) {
-	bs := fontFor(r.URL.Path)
+	bs := web.FontFor(r.URL.Path)
 	if len(bs) == 0 {
 		http.NotFound(w, r)
 	} else {
@@ -173,17 +60,11 @@ func handleFont(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleCSS(w http.ResponseWriter, r *http.Request) {
-	h := w.Header()
-	h.Set("Content-Type", "text/css; charset=utf-8")
-	emit(w, stylesheet)
-}
-
 func handleJSON(w http.ResponseWriter, r *http.Request) {
 	m := modelFrom(r)
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
-	h.Set("Content-Disposition", "attachment; filename=\""+fileStem(m)+".json\"")
+	h.Set("Content-Disposition", "attachment; filename=\""+web.FileStem(m)+".json\"")
 	emitBytes(w, palette.ToJSON(m.Pal))
 }
 
@@ -191,7 +72,7 @@ func handlePDF(w http.ResponseWriter, r *http.Request) {
 	m := modelFrom(r)
 	h := w.Header()
 	h.Set("Content-Type", "application/pdf")
-	h.Set("Content-Disposition", "attachment; filename=\""+fileStem(m)+".pdf\"")
+	h.Set("Content-Disposition", "attachment; filename=\""+web.FileStem(m)+".pdf\"")
 	err := palette.WritePDF(w, m.Pal)
 	if err != nil {
 		http.Error(w, "PDF generation failed", 500)
@@ -209,7 +90,7 @@ func portFrom(env string) string {
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "check" {
-		os.Exit(RunChecks())
+		os.Exit(web.RunChecks())
 	}
 	http.HandleFunc("/", handlePage)
 	http.HandleFunc("/style.css", handleCSS)
@@ -217,7 +98,7 @@ func main() {
 	http.HandleFunc("/palette.json", handleJSON)
 	http.HandleFunc("/palette.pdf", handlePDF)
 	port := portFrom(os.Getenv("PORT"))
-	fmt.Printf("Palette Forge listening on http://localhost:%s\n", port)
+	fmt.Printf("Palette Forge %s listening on http://localhost:%s\n", web.Version, port)
 	err := http.ListenAndServe(":"+port, nil)
 	if err != nil {
 		panic(err)

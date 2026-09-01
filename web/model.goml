@@ -1,0 +1,105 @@
+module web
+
+-- The page model and URL-state parsing, shared by the server binary and
+-- the WebAssembly "try it" build. All state lives in the URL; Embed marks
+-- the wasm build, where downloads become data: URLs and assets inline.
+
+import "fmt"
+import "net/url"
+import "strconv"
+import "strings"
+import "goforge.dev/palettegen/palette"
+
+let Version : String := "v0.2.0"
+
+type Model := {
+  Mode : String;
+  Hex : String;
+  CuratedID : Int;
+  QS : String;
+  Note : String;
+  Theme : String;
+  Embed : Bool;
+  Pal : palette.Palette
+}
+
+-- "light" and "dark" are honored; anything else means "follow the OS".
+let sanitizeTheme (t : String) : String :=
+  if t == "light" || t == "dark" then t else ""
+
+let parseIntOr (s : String) (fallback : Int) : Int := do {
+  let n, err := strconv.Atoi s;
+  if err != nil then fallback else n
+}
+
+-- The color the picker should show: the current palette's base primary.
+let pickerHex (m : Model) : String :=
+  if m.Mode == "generated" then m.Hex
+  else if len m.Pal.Primary > 0 && len m.Pal.Primary[0].Shades == 10
+    then m.Pal.Primary[0].Shades[4].Hex
+    else "#2CB1BC"
+
+let curatedModel (id : Int) (note : String) (theme : String) (embed : Bool) : Model :=
+  Model {
+    Mode = "curated",
+    Hex = "",
+    CuratedID = id,
+    QS = fmt.Sprintf "p=%d" id,
+    Note = note,
+    Theme = theme,
+    Embed = embed,
+    Pal = palette.FromCurated id
+  }
+
+let generatedModel (sh : palette.Shade) (theme : String) (embed : Bool) : Model :=
+  Model {
+    Mode = "generated",
+    Hex = sh.Hex,
+    CuratedID = 0,
+    QS = "c=" + strings.TrimPrefix sh.Hex "#",
+    Note = "",
+    Theme = theme,
+    Embed = embed,
+    Pal = palette.Generate sh
+  }
+
+-- The freshly-typed hex wins over the picker; empty means "not given".
+let pickColor (hx : String) (c : String) : String :=
+  if strings.TrimSpace hx != "" then hx else c
+
+-- ModelFromValues builds the page model from URL query parameters.
+let ModelFromValues (q : url.Values) (embed : Bool) : Model := do {
+  let theme := sanitizeTheme (q.Get "t");
+  let pRaw := q.Get "p";
+  let colorRaw := pickColor (q.Get "hx") (q.Get "c");
+  if pRaw != "" then do {
+    let id := parseIntOr pRaw 0;
+    if id >= 1 && id <= len (palette.Curated ())
+      then curatedModel id "" theme embed
+      else curatedModel 1 "That palette number does not exist - showing Palette 1." theme embed
+  } else if strings.TrimSpace colorRaw != "" then do {
+    let parsed := palette.ParseHex colorRaw;
+    if palette.ParsedOk parsed
+      then generatedModel (palette.ParsedShade parsed) theme embed
+      else curatedModel 1 "Could not read that color - showing Palette 1 instead. Try a hex like #7C3AED." theme embed
+  } else curatedModel 1 "" theme embed
+}
+
+-- ModelFromQuery parses a raw query string ("?c=7C3AED&t=dark" or without
+-- the leading "?"), tolerating garbage - the wasm entry's front door.
+let ModelFromQuery (search : String) (embed : Bool) : Model := do {
+  let raw := strings.TrimPrefix search "?";
+  let q, err := url.ParseQuery raw;
+  if err != nil
+    then curatedModel 1 "" "" embed
+    else ModelFromValues q embed
+}
+
+-- FileStem names the downloadable artifacts after the palette.
+let FileStem (m : Model) : String := do {
+  let lower := strings.ToLower m.Pal.Name;
+  let dashed := strings.ReplaceAll lower " " "-";
+  let noHash := strings.ReplaceAll dashed "#" "";
+  let noOpen := strings.ReplaceAll noHash "(" "";
+  "palette-" + strings.ReplaceAll noOpen ")" ""
+}

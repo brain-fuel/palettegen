@@ -1,0 +1,22 @@
+module main
+
+-- The WebAssembly entry for goforge.dev/palettegen/try: render once, print
+-- the page, exit. The static shell (index.html) passes location.search as
+-- argv[1], captures stdout, and document.write()s the result - so this
+-- stays pure goml with no syscall/js, and even runs under Node for tests:
+--
+--   GOOS=js GOARCH=wasm go build -o app.wasm ./try
+--   node tools/run_wasm.mjs app.wasm '?c=7C3AED'
+--
+-- Form submits are plain GETs, which reload the shell with a new query;
+-- downloads are data: URLs baked into the page (Embed mode).
+
+import "fmt"
+import "os"
+import "goforge.dev/palettegen/web"
+
+let main () : Unit := do {
+  let search := if len os.Args > 1 then os.Args[1] else "";
+  let m := web.ModelFromQuery search true;
+  fmt.Print (web.RenderPage m)
+}

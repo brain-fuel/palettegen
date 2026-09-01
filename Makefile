@@ -3,7 +3,7 @@
 
 GOML ?= goml
 
-.PHONY: gen build run check ci data fonts clean
+.PHONY: gen build run check ci data fonts wasm site clean
 
 gen:
 	$(GOML) gen ./...
@@ -27,6 +27,17 @@ ci:
 data:
 	python3 tools/gen_data.py
 	$(MAKE) gen
+
+# The WebAssembly build behind goforge.dev/palettegen/try.
+wasm: gen
+	GOOS=js GOARCH=wasm go build -o try/app.wasm ./try
+
+# Copy the wasm and Go's runtime shim into the goforge.dev site checkout.
+SITE ?= ../dev.goforge
+site: wasm
+	mkdir -p $(SITE)/static/palettegen/try
+	cp try/app.wasm $(SITE)/static/palettegen/try/app.wasm
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(SITE)/static/palettegen/try/wasm_exec.js
 
 # Re-download and re-embed the fonts (Overpass, Atkinson Hyperlegible).
 fonts:

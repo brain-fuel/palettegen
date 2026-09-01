@@ -1,4 +1,4 @@
-module main
+module web
 
 -- The app's stylesheet. Its chrome is Palette 1 from the book (cyan primary,
 -- blue-grey neutrals) - the tool practices what it preaches. Proportions sit
@@ -88,13 +88,25 @@ let themeRowsFor (p0 : palette.Palette) : Slice String := do {
 -- The per-page token block: the whole site wears the selected palette.
 let ThemeCSS (p : palette.Palette) : String := strings.Join (themeRowsFor p) "\n"
 
-let cssRows : Slice String := [
+-- One @font-face rule; embedded builds inline the woff2 as a data: URL,
+-- the server build points at /fonts/ (relative, so it works under any base).
+let fontFaceRow (family : String) (style : String) (weight : String) (src : String) : String :=
+  "@font-face { font-family: '" + family + "'; font-style: " + style + "; font-weight: " + weight +
+    "; font-display: swap; src: url(" + src + ") format('woff2'); }"
+
+let fontSrc (embed : Bool) (b64 : String) (file : String) : String :=
+  if embed then "data:font/woff2;base64," + b64 else "'fonts/" + file + "'"
+
+let fontFace (embed : Bool) : Slice String := [
   "/* Self-hosted fonts, embedded in the binary (SIL OFL 1.1). */",
-  "@font-face { font-family: 'Overpass'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/overpass-700.woff2') format('woff2'); }",
-  "@font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/atkinson-400.woff2') format('woff2'); }",
-  "@font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/atkinson-700.woff2') format('woff2'); }",
-  "@font-face { font-family: 'Atkinson Hyperlegible'; font-style: italic; font-weight: 400; font-display: swap; src: url('/fonts/atkinson-400-italic.woff2') format('woff2'); }",
-  "",
+  fontFaceRow "Overpass" "normal" "700" (fontSrc embed overpass700B64 "overpass-700.woff2"),
+  fontFaceRow "Atkinson Hyperlegible" "normal" "400" (fontSrc embed atkinson400B64 "atkinson-400.woff2"),
+  fontFaceRow "Atkinson Hyperlegible" "normal" "700" (fontSrc embed atkinson700B64 "atkinson-700.woff2"),
+  fontFaceRow "Atkinson Hyperlegible" "italic" "400" (fontSrc embed atkinson400iB64 "atkinson-400-italic.woff2"),
+  ""
+]
+
+let cssRows : Slice String := [
   "* { box-sizing: border-box; }",
   "body {",
   "  margin: 0; background: var(--bg); color: var(--ink);",
@@ -250,5 +262,12 @@ let cssRows : Slice String := [
   "}"
 ]
 
--- Structural rules only; color tokens arrive per page via ThemeCSS.
-let stylesheet := strings.Join cssRows "\n"
+-- Stylesheet is what the server serves at /style.css: font faces (by URL)
+-- plus structural rules. Color tokens arrive per page via ThemeCSS.
+let Stylesheet := strings.Join (fontFace false) "\n" + "\n" + strings.Join cssRows "\n"
+
+-- EmbeddedCSS is the whole thing inline - fonts as data: URLs, structure,
+-- and the palette's tokens - for the WebAssembly build, which has no
+-- server to fetch assets from.
+let EmbeddedCSS (p : palette.Palette) : String :=
+  strings.Join (fontFace true) "\n" + "\n" + strings.Join cssRows "\n" + "\n" + ThemeCSS p

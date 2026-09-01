@@ -1,0 +1,26 @@
+module web
+
+-- Decode the embedded fonts (fonts.goml) once and serve them by path.
+
+import "encoding/base64"
+
+let noFontBytes () : Slice Byte := make (Slice Byte) 0
+
+let decodeFont (s : String) : Slice Byte := do {
+  let enc := base64.StdEncoding;
+  let bs, err := enc.DecodeString s;
+  if err != nil then noFontBytes () else bs
+}
+
+let overpass700 := decodeFont overpass700B64
+let atkinson400 := decodeFont atkinson400B64
+let atkinson700 := decodeFont atkinson700B64
+let atkinson400i := decodeFont atkinson400iB64
+
+-- FontFor maps a request path to font bytes; empty means not found.
+let FontFor (p : String) : Slice Byte :=
+  if p == "/fonts/overpass-700.woff2" then overpass700
+  else if p == "/fonts/atkinson-400.woff2" then atkinson400
+  else if p == "/fonts/atkinson-700.woff2" then atkinson700
+  else if p == "/fonts/atkinson-400-italic.woff2" then atkinson400i
+  else noFontBytes ()
