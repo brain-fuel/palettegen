@@ -63,7 +63,9 @@ let brandLaw (r : Byte) (g : Byte) (b : Byte) : Bool := do {
   let original := palette.Generate base;
   let withSecondary := palette.WithSecondary original secondary;
   let rgb := palette.RGBOf base;
-  anchorPreserved base original.Primary[0] &&
+  strings.Contains withSecondary.Name (original.Primary[0].Name + " " + base.Hex) &&
+    strings.Contains withSecondary.Name (withSecondary.Secondary[0].Name + " " + secondary.Hex) &&
+    anchorPreserved base original.Primary[0] &&
     anchorPreserved secondary withSecondary.Secondary[0] &&
     scaleOrdered original.Primary[0] && scaleOrdered withSecondary.Secondary[0] &&
     rgb.R == Int r && rgb.G == Int g && rgb.B == Int b &&
@@ -148,12 +150,17 @@ let RunChecks () : Int := do {
   fails := fails + check "partial alpha is sampled over white" (len partialColors == 1 && partialColors[0].Hex == "#FF7F7F");
 
   let pair := ModelFromQuery "?c=7c3aed&s=e87924&t=dark" false;
+  let namedPair := ModelFromQuery "?c=BA2C86&s=26E8C1" false;
+  let pairName := "Magenta #BA2C86 + Teal (Vivid) #26E8C1";
+  fails := fails + check "both palette bases have color names" (namedPair.Pal.Name == pairName && strings.Contains (String (palette.ToJSON namedPair.Pal)) pairName && strings.Contains (ResultHTML namedPair) pairName);
+  fails := fails + check "single-color palette name is unchanged" ((ModelFromQuery "?c=BA2C86" false).Pal.Name == "Magenta #BA2C86");
   fails := fails + check "secondary is canonical URL state" (pair.SecondaryHex == "#E87924" && pair.QS == "c=7C3AED&s=E87924" && pair.Theme == "dark");
   fails := fails + check "secondary has its own JSON field" (strings.Contains (String (palette.ToJSON pair.Pal)) "\"secondary\"");
   fails := fails + check "single-color JSON omits secondary" (!(strings.Contains (String (palette.ToJSON gen)) "\"secondary\""));
   let badSecondary := ModelFromQuery "?c=7C3AED&s=invalid" false;
   fails := fails + check "invalid secondary retains primary" (badSecondary.Hex == "#7C3AED" && len badSecondary.Pal.Secondary == 0 && badSecondary.Note != "");
   let customBook := ModelFromQuery "?p=12&s=E87924" false;
+  fails := fails + check "custom book names its primary and secondary colors" (strings.HasPrefix customBook.Pal.Name "Palette 12 (" && strings.Contains customBook.Pal.Name customBook.Pal.Primary[0].Name && strings.Contains customBook.Pal.Name (customBook.Pal.Secondary[0].Name + " #E87924"));
   fails := fails + check "custom book is not labeled verbatim" (len customBook.Pal.Secondary == 1 && !(strings.Contains customBook.Pal.Basis "verbatim"));
   fails := fails + check "similar hue is advisory" (PairingGuidance (ModelFromQuery "?c=7C3AED&s=7C3AED" false) != "");
   fails := fails + check "similar colors receive a warning tone" (PairingTone (ModelFromQuery "?c=7C3AED&s=8B5CF6" false) == "warning");

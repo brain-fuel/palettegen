@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.1 — 2026-10-24
+
+- Name both base colors in two-color palette titles, JSON, PDFs, and download
+  filenames. For example: `Magenta #BA2C86 + Teal (Vivid) #26E8C1`.
+- Include primary color names when customizing a curated palette, retaining
+  its original palette number. Single-color names are unchanged.
+- Document corrective UX decisions with PHW's outside/inside fence structure,
+  including the principle and limits of each correction.
+
 ## v0.3.0 — 2026-10-24
 
 - Add an optional secondary brand scale, independent of the complementary

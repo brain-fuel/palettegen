@@ -83,7 +83,7 @@ func brandLaw(r byte, g byte, b byte) bool {
 	original := palette.Generate(base)
 	withSecondary := palette.WithSecondary(original, secondary)
 	rgb := palette.RGBOf(base)
-	return anchorPreserved(base, original.Primary[0]) && anchorPreserved(secondary, withSecondary.Secondary[0]) && scaleOrdered(original.Primary[0]) && scaleOrdered(withSecondary.Secondary[0]) && rgb.R == int(r) && rgb.G == int(g) && rgb.B == int(b) && reflect.DeepEqual(original.Primary, withSecondary.Primary) && reflect.DeepEqual(original.Supporting, withSecondary.Supporting) && reflect.DeepEqual(original.Neutrals, withSecondary.Neutrals) && string(palette.ToJSON(withSecondary)) == string(palette.ToJSON(palette.WithSecondary(palette.Generate(base), secondary)))
+	return strings.Contains(withSecondary.Name, original.Primary[0].Name+" "+base.Hex) && strings.Contains(withSecondary.Name, withSecondary.Secondary[0].Name+" "+secondary.Hex) && anchorPreserved(base, original.Primary[0]) && anchorPreserved(secondary, withSecondary.Secondary[0]) && scaleOrdered(original.Primary[0]) && scaleOrdered(withSecondary.Secondary[0]) && rgb.R == int(r) && rgb.G == int(g) && rgb.B == int(b) && reflect.DeepEqual(original.Primary, withSecondary.Primary) && reflect.DeepEqual(original.Supporting, withSecondary.Supporting) && reflect.DeepEqual(original.Neutrals, withSecondary.Neutrals) && string(palette.ToJSON(withSecondary)) == string(palette.ToJSON(palette.WithSecondary(palette.Generate(base), secondary)))
 }
 
 func imageLaw(r byte, g byte, b byte, r2 byte, g2 byte, b2 byte) bool {
@@ -158,12 +158,17 @@ func RunChecks() int {
 	partialColors := palette.ImageColors(partial)
 	fails = fails + check("partial alpha is sampled over white", len(partialColors) == 1 && partialColors[0].Hex == "#FF7F7F")
 	pair := ModelFromQuery("?c=7c3aed&s=e87924&t=dark", false)
+	namedPair := ModelFromQuery("?c=BA2C86&s=26E8C1", false)
+	pairName := "Magenta #BA2C86 + Teal (Vivid) #26E8C1"
+	fails = fails + check("both palette bases have color names", namedPair.Pal.Name == pairName && strings.Contains(string(palette.ToJSON(namedPair.Pal)), pairName) && strings.Contains(ResultHTML(namedPair), pairName))
+	fails = fails + check("single-color palette name is unchanged", ModelFromQuery("?c=BA2C86", false).Pal.Name == "Magenta #BA2C86")
 	fails = fails + check("secondary is canonical URL state", pair.SecondaryHex == "#E87924" && pair.QS == "c=7C3AED&s=E87924" && pair.Theme == "dark")
 	fails = fails + check("secondary has its own JSON field", strings.Contains(string(palette.ToJSON(pair.Pal)), "\"secondary\""))
 	fails = fails + check("single-color JSON omits secondary", !strings.Contains(string(palette.ToJSON(gen)), "\"secondary\""))
 	badSecondary := ModelFromQuery("?c=7C3AED&s=invalid", false)
 	fails = fails + check("invalid secondary retains primary", badSecondary.Hex == "#7C3AED" && len(badSecondary.Pal.Secondary) == 0 && badSecondary.Note != "")
 	customBook := ModelFromQuery("?p=12&s=E87924", false)
+	fails = fails + check("custom book names its primary and secondary colors", strings.HasPrefix(customBook.Pal.Name, "Palette 12 (") && strings.Contains(customBook.Pal.Name, customBook.Pal.Primary[0].Name) && strings.Contains(customBook.Pal.Name, customBook.Pal.Secondary[0].Name+" #E87924"))
 	fails = fails + check("custom book is not labeled verbatim", len(customBook.Pal.Secondary) == 1 && !strings.Contains(customBook.Pal.Basis, "verbatim"))
 	fails = fails + check("similar hue is advisory", PairingGuidance(ModelFromQuery("?c=7C3AED&s=7C3AED", false)) != "")
 	fails = fails + check("similar colors receive a warning tone", PairingTone(ModelFromQuery("?c=7C3AED&s=8B5CF6", false)) == "warning")

@@ -9,6 +9,10 @@
   spacing, mobile layouts, and user-uploaded images to this application's UI.
 - Read and maintain `UX_CHOICES.md` for the task flow, live updates, session
   recovery, gesture behavior, and the principles behind these decisions.
+- Record every corrective UX decision using PHW's fence structure: outside
+  (the failure or alternative to avoid), inside (the adopted behavior), and
+  the principle/context/limits. Distinguish observed corrections from preventive
+  guardrails, and preserve relevant history when a boundary changes.
 - Author application behavior in `.goml`; regenerate committed `*_gml.go`
   with goml v0.158.0. JavaScript is limited to the Wasm bootstrap/runtime bridge
   and test/build tooling.

@@ -174,10 +174,11 @@ directly, which it does natively.
 - **UI (Leonardo da Vinci)**: simplicity as sophistication — whitespace,
   one column, soft shadow depth instead of borders; spacing on a
   Fibonacci scale, type on a golden-ratio ramp (16/26/42).
-- **UI (Patrick Henry Winston)**: an empowerment promise up top; constant
-  landmarks (Primary / optional Secondary / Neutrals / Supporting);
-  teaching-by-role captions; and the palette shown three ways — swatches,
-  an in-context preview card, and the downloadable artifacts.
+- **UI (Patrick Henry Winston)**: corrective decisions in [UX_CHOICES.md](UX_CHOICES.md)
+  put a fence around each idea: the failure to avoid, the behavior to adopt,
+  and its principle and limits. Stable landmarks (Primary / optional Secondary
+  / Neutrals / Supporting), role captions, swatches, previews, and exports
+  help make the palette understandable.
 - The app's chrome wears the palette it is showing: page background, text,
   buttons, links, focus rings and shadows are all derived from the selected
   palette's neutral and primary scales (in both color schemes). The default

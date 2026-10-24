@@ -453,6 +453,19 @@ async function runFlow(browser, deployment, baseURL, touch) {
   await page.setViewportSize({width:touch?390:1280,height:touch?844:900});
   await page.evaluate(()=>scrollTo(0,0));
   await page.screenshot({path:path.join(artifacts,`${deployment}-${touch?'mobile':'desktop'}.png`)});
+  // Both base colors must be named in the shared title and exported files.
+  await page.goto(new URL('?c=BA2C86&s=26E8C1',baseURL).href); await ready(page);
+  const named = await jsonPalette(page);
+  assert.equal(named.name,'Magenta #BA2C86 + Teal (Vivid) #26E8C1');
+  assert.equal(await page.locator('#result-heading').textContent(),named.name);
+  for (const kind of ['json','pdf']) {
+    const pending=page.waitForEvent('download');await page.locator(`.downloads .${kind}`).click();
+    const download=await pending;
+    assert(download.suggestedFilename().includes('teal-vivid-26e8c1'),'Filename must name the secondary color');
+    const destination=path.join(artifacts,`${deployment}-named.${kind}`);await download.saveAs(destination);
+    if(kind==='json') assert.equal(JSON.parse(await fs.readFile(destination,'utf8')).name,named.name);
+  }
+  await noOverflow(page,`${deployment} named pair`);
   assert.deepEqual(errors,[],`${deployment} browser errors`);
   await context.close();
   console.log(`PASS ${deployment}: safe previews, explicit assignments, isolated live refinement, precise pixels, thumb drag, recovery, shared image frame, sources and exports`);

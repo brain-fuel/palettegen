@@ -198,8 +198,14 @@ let DescSecondary : String := "A second brand color, with its own light and dark
 let WithSecondary (p : Palette) (base : Shade) : Palette := do {
   let sc := ShiftScale (Nearest base (ColorSeeds ())) base (HueName base.H base.S);
   let scales : Slice Scale := [sc];
+  let mut originalName := p.Name;
+  if strings.HasSuffix p.Basis " (verbatim)" then do {
+    let mut names := make (Slice String) 0;
+    for _, primary in p.Primary do { names := append names primary.Name };
+    originalName := p.Name + " (" + strings.Join names ", " + ")"
+  } else ();
   { p with
-    Name = p.Name + " + " + base.Hex,
+    Name = originalName + " + " + sc.Name + " " + base.Hex,
     Basis = strings.ReplaceAll p.Basis " (verbatim)" " (customized)" + "; secondary brand color " + base.Hex,
     Secondary = scales
   }

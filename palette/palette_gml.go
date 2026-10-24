@@ -295,8 +295,16 @@ var DescSecondary string = "A second brand color, with its own light and dark sh
 func WithSecondary(p Palette, base Shade) Palette {
 	sc := ShiftScale(Nearest(base, ColorSeeds()), base, HueName(base.H, base.S))
 	scales := []Scale{sc}
+	originalName := p.Name
+	if strings.HasSuffix(p.Basis, " (verbatim)") {
+		names := make([]string, 0)
+		for _, primary := range p.Primary {
+			names = append(names, primary.Name)
+		}
+		originalName = p.Name + " (" + strings.Join(names, ", ") + ")"
+	}
 	u1 := p
-	u1.Name = p.Name + " + " + base.Hex
+	u1.Name = originalName + " + " + sc.Name + " " + base.Hex
 	u1.Basis = strings.ReplaceAll(p.Basis, " (verbatim)", " (customized)") + "; secondary brand color " + base.Hex
 	u1.Secondary = scales
 	return u1
