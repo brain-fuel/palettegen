@@ -1,0 +1,201 @@
+module main
+
+import "fmt"
+import "math"
+import "syscall/js"
+import "goforge.dev/palettegen/palette"
+
+let zoomX : Int := 0
+let zoomY : Int := 0
+let zoomColumns : Int := 0
+let zoomRows : Int := 0
+let zoomReady : Bool := false
+let scrubPointer : Int := -1
+
+type ImagePoint := { X : Int; Y : Int }
+
+let positionMarker () : Unit := do {
+  let canvas := element "picture";
+  if (element "picture-marker").Get "hidden" |> jsBool then () else do {
+    let rect := canvas.Call "getBoundingClientRect";
+    let frame := (element "picture-viewport").Call "getBoundingClientRect";
+    let left := (rect.Get "left" |> jsFloat) - (frame.Get "left" |> jsFloat);
+    let top := (rect.Get "top" |> jsFloat) - (frame.Get "top" |> jsFloat);
+    let width := rect.Get "width" |> jsFloat;
+    let height := rect.Get "height" |> jsFloat;
+    let style := (element "picture-marker").Get "style";
+    style.Set "left" (fmt.Sprintf "%.2fpx" (left + (Float64 sampleX + 0.5) * width / (canvas.Get "width" |> jsFloat)));
+    style.Set "top" (fmt.Sprintf "%.2fpx" (top + (Float64 sampleY + 0.5) * height / (canvas.Get "height" |> jsFloat)))
+  }
+}
+
+let drawMagnifier () : Unit := do {
+  let lens := element "magnifier";
+  let ctx := lens.Call "getContext" "2d";
+  let width := lens.Get "width" |> jsFloat;
+  let height := lens.Get "height" |> jsFloat;
+  let cw := width / Float64 zoomColumns;
+  let ch := height / Float64 zoomRows;
+  ctx.Set "fillStyle" "#FFFFFF"; ctx.Call "fillRect" 0 0 width height;
+  ctx.Set "imageSmoothingEnabled" false;
+  ctx.Call "drawImage" (element "picture") zoomX zoomY zoomColumns zoomRows 0 0 width height;
+  ctx.Set "strokeStyle" "rgba(16,42,67,.25)"; ctx.Set "lineWidth" 1;
+  let mut i := 1;
+  while i < zoomColumns do {
+    ctx.Call "beginPath"; ctx.Call "moveTo" (Float64 i * cw) 0; ctx.Call "lineTo" (Float64 i * cw) height; ctx.Call "stroke";
+    i := i + 1
+  };
+  i := 1;
+  while i < zoomRows do {
+    ctx.Call "beginPath"; ctx.Call "moveTo" 0 (Float64 i * ch); ctx.Call "lineTo" width (Float64 i * ch); ctx.Call "stroke";
+    i := i + 1
+  };
+  let x := Float64 (sampleX - zoomX) * cw + 1.5;
+  let y := Float64 (sampleY - zoomY) * ch + 1.5;
+  ctx.Set "strokeStyle" "#FFFFFF"; ctx.Set "lineWidth" 3; ctx.Call "strokeRect" x y (cw - 3.0) (ch - 3.0);
+  ctx.Set "strokeStyle" "#102A43"; ctx.Set "lineWidth" 1; ctx.Call "strokeRect" x y (cw - 3.0) (ch - 3.0);
+  ()
+}
+
+-- Recenter only when choosing another area in the main picture. Tapping or
+-- scrubbing the lens keeps its source window fixed and reads actual pixels.
+let sampleAt (x : Int) (y : Int) (recenter : Bool) : Unit := do {
+  paintRole ();
+  let canvas := element "picture";
+  let w := canvas.Get "width" |> jsInt;
+  let h := canvas.Get "height" |> jsInt;
+  sampleX := Int (math.Max 0.0 (math.Min (Float64 (w - 1)) (Float64 x)));
+  sampleY := Int (math.Max 0.0 (math.Min (Float64 (h - 1)) (Float64 y)));
+  if recenter || !zoomReady then do {
+    zoomColumns := Int (math.Min 11.0 (Float64 w));
+    zoomRows := Int (math.Min 11.0 (Float64 h));
+    zoomX := Int (math.Max 0.0 (math.Min (Float64 (w - zoomColumns)) (Float64 (sampleX - zoomColumns / 2))));
+    zoomY := Int (math.Max 0.0 (math.Min (Float64 (h - zoomRows)) (Float64 (sampleY - zoomRows / 2))));
+    zoomReady := true
+  } else ();
+  let ctx := canvas.Call "getContext" "2d";
+  let pixels := (ctx.Call "getImageData" sampleX sampleY 1 1).Get "data";
+  let a := pixels.Index 3 |> jsInt;
+  (element "magnifier").Call "setAttribute" "aria-disabled" "false";
+  textAt "zoom-help" "Tap or drag across squares. Arrow keys move one pixel.";
+  show "picture-marker" true;
+  positionMarker ();
+  drawMagnifier ();
+  if a == 0 then do {
+    sampleHex := "";
+    textAt "sample-hex" "Transparent";
+    paintRole ();
+    status "warning" "This pixel is transparent. Choose a visible pixel to update your color."
+  } else do {
+    let c := palette.CompositeWhite (pixels.Index 0 |> jsInt) (pixels.Index 1 |> jsInt) (pixels.Index 2 |> jsInt) a;
+    selectColor (palette.ShadeFromRGB c.R c.G c.B).Hex;
+    ()
+  }
+}
+
+let samplePixel (x : Int) (y : Int) : Unit := do {
+  flushLive (); commitPalette ();
+  clearSampleAssignment (); hideSelectionNotice ();
+  sampleAt x y true;
+  matchSampleAssignment ();
+  paintHistory ()
+}
+
+let pictureClick (event : js.Value) : Any := do {
+  if pictureMoved then do { return nil } else ();
+  let canvas := element "picture";
+  let rect := canvas.Call "getBoundingClientRect";
+  let x := ((event.Get "clientX" |> jsFloat) - (rect.Get "left" |> jsFloat)) * (canvas.Get "width" |> jsFloat) / (rect.Get "width" |> jsFloat);
+  let y := ((event.Get "clientY" |> jsFloat) - (rect.Get "top" |> jsFloat)) * (canvas.Get "height" |> jsFloat) / (rect.Get "height" |> jsFloat);
+  if x < 0.0 || y < 0.0 || x >= (canvas.Get "width" |> jsFloat) || y >= (canvas.Get "height" |> jsFloat) then do { return nil } else ();
+  samplePixel (Int x) (Int y);
+  saveSession ();
+  nil
+}
+
+let zoomPoint (event : js.Value) : Unit := do {
+  let rect := (element "magnifier").Call "getBoundingClientRect";
+  let col := Int (((event.Get "clientX" |> jsFloat) - (rect.Get "left" |> jsFloat)) * Float64 zoomColumns / (rect.Get "width" |> jsFloat));
+  let row := Int (((event.Get "clientY" |> jsFloat) - (rect.Get "top" |> jsFloat)) * Float64 zoomRows / (rect.Get "height" |> jsFloat));
+  let x := zoomX + Int (math.Max 0.0 (math.Min (Float64 (zoomColumns - 1)) (Float64 col)));
+  let y := zoomY + Int (math.Max 0.0 (math.Min (Float64 (zoomRows - 1)) (Float64 row)));
+  sampleAt x y false
+}
+
+let magnifierClick (event : js.Value) : Any := do {
+  if zoomReady then do {
+    zoomPoint event; finishSampleGesture ()
+  } else ();
+  nil
+}
+
+let scrubStart (event : js.Value) : Any := do {
+  if zoomReady then do {
+    event.Call "preventDefault";
+    scrubPointer := event.Get "pointerId" |> jsInt;
+    -- Synthetic test/assistive events have no active native pointer to capture.
+    if event.Get "isTrusted" |> jsBool then do { (element "magnifier").Call "setPointerCapture" scrubPointer; () } else ();
+    zoomPoint event
+  } else ();
+  nil
+}
+
+let scrubMove (event : js.Value) : Any := do {
+  if scrubPointer >= 0 && (event.Get "pointerId" |> jsInt) == scrubPointer then zoomPoint event else ();
+  nil
+}
+
+let scrubEnd (event : js.Value) : Any := do {
+  if scrubPointer >= 0 then do {
+    let lens := element "magnifier";
+    let pointer := scrubPointer;
+    scrubPointer := -1;
+    if lens.Call "hasPointerCapture" pointer |> jsBool then do { lens.Call "releasePointerCapture" pointer; () } else ();
+    finishSampleGesture ()
+  } else ();
+  nil
+}
+
+let movePixel (event : js.Value) (withinZoom : Bool) : Any := do {
+  let key := event.Get "key" |> jsString;
+  if key == "ArrowLeft" || key == "ArrowRight" || key == "ArrowUp" || key == "ArrowDown" then do {
+    event.Call "preventDefault";
+    let dx := if key == "ArrowLeft" then -1 else if key == "ArrowRight" then 1 else 0;
+    let dy := if key == "ArrowUp" then -1 else if key == "ArrowDown" then 1 else 0;
+    let x := if withinZoom then Int (math.Max (Float64 zoomX) (math.Min (Float64 (zoomX + zoomColumns - 1)) (Float64 (sampleX + dx)))) else sampleX + dx;
+    let y := if withinZoom then Int (math.Max (Float64 zoomY) (math.Min (Float64 (zoomY + zoomRows - 1)) (Float64 (sampleY + dy)))) else sampleY + dy;
+    sampleAt x y (!withinZoom);
+    finishSampleGesture ()
+  } else ();
+  nil
+}
+
+let pictureKey (event : js.Value) : Any := movePixel event false
+let magnifierKey (event : js.Value) : Any := if zoomReady then movePixel event true else nil
+
+let suggestionPoint (color : palette.Shade) (rgba : Slice Byte) (aw : Int) (w : Int) (h : Int) (ah : Int) : ImagePoint := do {
+  let target := palette.RGBOf color;
+  let mut i := 0;
+  while i + 3 < len rgba do {
+    let a := Int rgba[i + 3];
+    if a > 0 then do {
+      let c := palette.CompositeWhite (Int rgba[i]) (Int rgba[i + 1]) (Int rgba[i + 2]) a;
+      if c.R == target.R && c.G == target.G && c.B == target.B then do {
+        return ImagePoint {
+          X = Int (math.Min (Float64 (w - 1)) ((Float64 ((i / 4) % aw) + 0.5) * Float64 w / Float64 aw)),
+          Y = Int (math.Min (Float64 (h - 1)) ((Float64 ((i / 4) / aw) + 0.5) * Float64 h / Float64 ah)) }
+      } else ()
+    } else ();
+    i := i + 4
+  };
+  ImagePoint { X = w / 2, Y = h / 2 }
+}
+
+let suggestionsHTML (colors : Slice palette.Shade) (rgba : Slice Byte) (aw : Int) (ah : Int) (w : Int) (h : Int) : String := do {
+  let mut out := "";
+  for _, color in colors do {
+    let p := suggestionPoint color rgba aw w h ah;
+    out := out + fmt.Sprintf "<button type=\"button\" class=\"suggestion\" data-color=\"%s\" data-x=\"%d\" data-y=\"%d\" aria-pressed=\"false\" aria-label=\"Sample %s\"><span class=\"suggestion-chip\" style=\"background:%s\"></span>%s</button>" color.Hex p.X p.Y color.Hex color.Hex color.Hex
+  };
+  out
+}

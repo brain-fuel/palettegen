@@ -8,7 +8,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"goforge.dev/palettegen/palette"
-	"strings"
+	"html"
+	_ "strings"
 )
 
 func inkFor(sh palette.Shade) string {
@@ -23,7 +24,7 @@ func hslLabel(sh palette.Shade) string {
 }
 
 func escapeHTML(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, "&", "&amp;"), "<", "&lt;"), ">", "&gt;")
+	return html.EscapeString(s)
 }
 
 func swatchCell(sh palette.Shade) string {
@@ -120,6 +121,10 @@ func tile(label string, body string) string {
 }
 
 func chipFor(p palette.Palette) string {
+	if len(p.Secondary) > 0 {
+		sh := p.Secondary[0].Shades
+		return "<span class=\"chip\" style=\"background:" + sh[8].Hex + ";color:" + sh[1].Hex + "\">Featured collection</span>"
+	}
 	if len(p.Supporting) == 0 {
 		return ""
 	}
@@ -228,8 +233,12 @@ func themeLink(m Model, value string, label string) string {
 	return "<a" + cls + " href=\"" + href + "\">" + label + "</a>"
 }
 
+func ThemeLinks(m Model) string {
+	return themeLink(m, "", "Auto") + themeLink(m, "light", "Light") + themeLink(m, "dark", "Dark")
+}
+
 func themeToggle(m Model) string {
-	return "<nav class=\"theme-toggle\" aria-label=\"Color scheme\">" + themeLink(m, "", "Auto") + themeLink(m, "light", "Light") + themeLink(m, "dark", "Dark") + "</nav>"
+	return "<nav id=\"theme-links\" class=\"theme-toggle\" aria-label=\"Color scheme\">" + ThemeLinks(m) + "</nav>"
 }
 
 func themeField(m Model) string {
@@ -264,8 +273,30 @@ func curatedOptions(selectedID int) string {
 	return out
 }
 
+func secondaryFields(m Model) string {
+	var __gp_v10 string
+	if m.SecondaryHex != "" {
+		__gp_v10 = " open"
+	} else {
+		__gp_v10 = ""
+	}
+	expanded := __gp_v10
+	var __gp_v11 string
+	if palette.ParsedOk(palette.ParseHex(m.SecondaryHex)) {
+		__gp_v11 = m.SecondaryHex
+	} else {
+		__gp_v11 = "#E87924"
+	}
+	hx := __gp_v11
+	return "<details id=\"secondary-controls\" class=\"secondary-controls\"" + expanded + "><summary>Add a secondary color <span class=\"optional\">optional</span></summary>" + "<div class=\"color-row\"><label id=\"secondary-picker-field\" class=\"field enhanced\" hidden><span>Secondary color</span><input id=\"secondary-picker\" type=\"color\" value=\"" + hx + "\"></label>" + "<label class=\"field hex-field\"><span>Secondary hex</span><input id=\"secondary-hex\" type=\"text\" name=\"s\" value=\"" + escapeHTML(m.SecondaryHex) + "\" placeholder=\"#E87924\" pattern=\"#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\" maxlength=\"7\" autocapitalize=\"off\" spellcheck=\"false\" aria-describedby=\"pairing-note\"></label>" + "<button id=\"clear-secondary\" type=\"button\" class=\"text-button enhanced\" hidden>Remove</button></div>" + "<p id=\"pairing-note\" class=\"field-help feedback\" data-tone=\"" + PairingTone(m) + "\" aria-live=\"polite\">" + FeedbackHTML(PairingTone(m), PairingGuidance(m)) + "</p></details>"
+}
+
+func picturePanel() string {
+	return "<section id=\"image-panel\" class=\"image-panel\" aria-labelledby=\"picture-title\"><h2 id=\"picture-title\" class=\"editor-heading\">Pick from a picture</h2>" + "<p id=\"image-availability\" class=\"field-help feedback\" data-tone=\"loading\" role=\"status\">Image picking is loading. You can choose colors manually below.</p>" + "<noscript><p class=\"field-help\">Image picking needs WebAssembly and browser scripting. You can enter primary and secondary hex colors below.</p></noscript>" + "<div id=\"image-tools\" hidden>" + "<div id=\"drop-zone\" class=\"drop-zone picture-frame\"><div id=\"picture-placeholder\"><label class=\"field\" for=\"image-file\"><span class=\"sr-only\">Upload a picture</span><input id=\"image-file\" type=\"file\" accept=\"image/*\"></label>" + "<p class=\"field-help\">Or drop a picture here &#183; 20 MB max.</p></div>" + "<div id=\"picture-viewport\" hidden><canvas id=\"picture\" tabindex=\"0\" role=\"img\" hidden aria-label=\"Your picture. Tap to preview, drag to pan, pinch or use plus and minus to zoom. Shift and arrow keys pan; arrow keys fine-tune; zero fits the picture.\"></canvas><span id=\"picture-marker\" class=\"picture-marker\" hidden></span></div>" + "<nav id=\"picture-zoom\" class=\"picture-zoom\" aria-label=\"Picture zoom\" hidden><button id=\"picture-zoom-in\" type=\"button\" class=\"ghost\" aria-label=\"Zoom in\">+</button><button id=\"picture-zoom-out\" type=\"button\" class=\"ghost\" aria-label=\"Zoom out\">−</button><button id=\"picture-fit\" type=\"button\" class=\"ghost\" aria-label=\"Fit whole picture\">Fit</button></nav></div>" + "<div id=\"picture-command-row\" class=\"picture-command-row\" hidden><button id=\"change-picture\" type=\"button\" class=\"text-button\" aria-expanded=\"false\" aria-controls=\"picture-source-options\">Change picture</button><button id=\"clear-picture\" type=\"button\" class=\"text-button\">Remove picture</button></div>" + "<div id=\"picture-source-options\"><button id=\"choose-replacement\" type=\"button\" class=\"ghost\" hidden>Choose a picture</button>" + "<div class=\"clipboard-row\"><button id=\"paste-picture\" type=\"button\" class=\"ghost\">Paste image</button>" + "<p class=\"field-help\">or Cmd/Ctrl+V</p></div>" + "<details id=\"image-url-options\" class=\"image-url-options\"><summary>Use an image link</summary>" + "<form id=\"image-url-form\" class=\"image-url-form\"><label class=\"field\" for=\"image-url\"><span>Direct image URL</span>" + "<input id=\"image-url\" type=\"url\" placeholder=\"https://example.com/photo.jpg\" autocomplete=\"off\" spellcheck=\"false\" required aria-describedby=\"url-help\"></label>" + "<button type=\"submit\" class=\"ghost\">Load picture</button></form>" + "<p id=\"url-help\" class=\"field-help\">Use a direct HTTPS image link. Some websites restrict access to image colors.</p></details></div>" + "<p id=\"image-status\" class=\"field-help feedback\" role=\"status\" aria-live=\"polite\"></p>" + "<div id=\"picture-workspace\" hidden><div class=\"sample-row\"><div class=\"precision-sample\"><h4>Fine-tune a pixel</h4><canvas id=\"magnifier\" width=\"132\" height=\"132\" tabindex=\"0\" role=\"img\" aria-disabled=\"true\" aria-label=\"Magnified pixels. Tap or drag to select an exact color. Arrow keys move one pixel.\" aria-describedby=\"zoom-help\"></canvas>" + "<p id=\"zoom-help\" class=\"sr-only\">Tap the picture to see its pixels here.</p></div>" + "<div class=\"sample-actions\"><p id=\"sampling-role\" class=\"field-help\" role=\"status\">Choose a picture color</p><output id=\"sample-hex\" aria-live=\"polite\">Choose a color</output><div class=\"assign-actions\" role=\"group\" aria-label=\"Assign the previewed color\">" + "<button id=\"pick-primary\" type=\"button\" class=\"ghost\" disabled aria-pressed=\"false\" aria-describedby=\"sampling-role\">Use as Primary</button><div class=\"secondary-role-actions\"><button id=\"pick-secondary\" type=\"button\" class=\"ghost\" disabled aria-pressed=\"false\" aria-describedby=\"sampling-role\">Use as Secondary</button>" + "<button id=\"remove-sample-secondary\" type=\"button\" class=\"text-button\" hidden>Remove secondary</button></div></div></div></div>" + "<h4 class=\"suggestion-heading\">Or choose a suggested color</h4><div id=\"image-suggestions\" class=\"image-suggestions\" aria-label=\"Suggested image colors\"></div>" + "</div></div></section>"
+}
+
 func controls(m Model) string {
-	return "<div class=\"controls\">" + "<form class=\"gen\" method=\"get\">" + themeField(m) + "<label class=\"field\"><span>Starting color</span>" + "<input type=\"color\" name=\"c\" value=\"" + pickerHex(m) + "\"></label>" + "<label class=\"field\"><span>Exact hex (optional, wins if filled)</span>" + "<input type=\"text\" name=\"hx\" placeholder=\"" + pickerHex(m) + "\" " + "pattern=\"#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\"></label>" + "<button class=\"primary\" type=\"submit\">Generate palette</button>" + "</form>" + "<form class=\"curated\" method=\"get\">" + themeField(m) + "<label class=\"field\"><span>Or start from the book</span>" + "<select name=\"p\">" + curatedOptions(m.CuratedID) + "</select></label>" + "<button class=\"ghost\" type=\"submit\">Open book palette</button>" + "</form>" + "</div>"
+	return "<div class=\"controls\">" + "<section id=\"session-history\" class=\"session-history\" hidden aria-labelledby=\"history-title\"><div class=\"history-head\"><h2 id=\"history-title\" class=\"editor-heading\">Session history</h2><button id=\"close-history\" type=\"button\" class=\"text-button\">Close</button></div>" + "<p class=\"field-help\">Restore an earlier palette or color. Saved in this tab for this session.</p><h3>Palettes</h3><div id=\"palette-history\" class=\"palette-history\"></div>" + "<h3>Colors</h3><label class=\"field history-role-field\"><span>Apply colors to</span><select id=\"history-role\"><option value=\"primary\">Primary</option><option value=\"secondary\">Secondary</option></select></label><div id=\"color-history\" class=\"color-history\"></div></section>" + picturePanel() + "<section class=\"manual-editor\" aria-labelledby=\"manual-title\"><h2 id=\"manual-title\" class=\"editor-heading\">Or choose colors manually</h2><p class=\"field-help\">Use a color picker or enter a hex value.</p>" + "<form id=\"generate-form\" class=\"gen\" method=\"get\">" + themeField(m) + "<div class=\"color-row\"><label class=\"field\"><span>Primary color</span>" + "<input id=\"primary-picker\" type=\"color\" name=\"c\" value=\"" + pickerHex(m) + "\"></label>" + "<label class=\"field hex-field\"><span>Hex value</span>" + "<input id=\"primary-hex\" type=\"text\" name=\"hx\" placeholder=\"" + pickerHex(m) + "\" maxlength=\"7\" autocapitalize=\"off\" spellcheck=\"false\" " + "pattern=\"#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\"></label></div>" + secondaryFields(m) + "<button id=\"manual-apply\" class=\"primary\" type=\"submit\">Apply colors</button>" + "</form>" + "<details class=\"curated-options\"><summary>Use a curated palette</summary><form id=\"curated-form\" class=\"curated\" method=\"get\">" + themeField(m) + "<input id=\"curated-secondary\" type=\"hidden\" name=\"s\" value=\"" + escapeHTML(m.SecondaryHex) + "\">" + "<label class=\"field\"><span>Book palette</span>" + "<select id=\"curated-id\" name=\"p\">" + curatedOptions(m.CuratedID) + "</select></label>" + "<button id=\"curated-apply\" class=\"ghost\" type=\"submit\">Open book palette</button>" + "</form></details></section>" + "</div>"
 }
 
 func jsonSection(m Model) string {
@@ -303,21 +334,36 @@ func downloadLinks(m Model) string {
 	return "<a class=\"dl pdf\" href=\"palette.pdf?" + m.QS + "\">Download PDF</a>" + "<a class=\"dl json\" href=\"palette.json?" + m.QS + "\">Download JSON</a>"
 }
 
-func resultSection(m Model) string {
-	return "<div class=\"result-head\"><h2>" + m.Pal.Name + "</h2>" + "<div class=\"downloads\">" + downloadLinks(m) + "</div></div>" + "<p class=\"basis\">" + m.Pal.Basis + "</p>" + categorySection("Primary", "Your product's voice. Use these for primary actions, links, navigation, icons - the splashes of color that determine the overall look.", m.Pal.Primary) + categorySection("Neutrals", "The workhorse. Most of your UI is this: text, backgrounds, panels, borders, secondary buttons.", m.Pal.Neutrals) + categorySection("Supporting", "The seasoning, used sparingly: success, warning and danger states, plus accents that keep the primary color special.", m.Pal.Supporting) + contextSection(m.Pal) + jsonSection(m)
+func ResultHTML(m Model) string {
+	var __gp_v12 string
+	if len(m.Pal.Secondary) > 0 {
+		__gp_v12 = categorySection("Secondary", palette.DescSecondary, m.Pal.Secondary)
+	} else {
+		__gp_v12 = ""
+	}
+	return "<div class=\"result-head\"><h2 id=\"result-heading\" tabindex=\"-1\">" + m.Pal.Name + "</h2>" + "<div class=\"downloads\">" + downloadLinks(m) + "</div></div>" + "<p class=\"basis\">" + m.Pal.Basis + "</p>" + categorySection("Primary", "Your product's voice. Use these for primary actions, links, navigation, icons - the splashes of color that determine the overall look.", m.Pal.Primary) + __gp_v12 + categorySection("Neutrals", "The workhorse. Most of your UI is this: text, backgrounds, panels, borders, secondary buttons.", m.Pal.Neutrals) + categorySection("Supporting", "The seasoning, used sparingly: success, warning and danger states, plus accents that keep the primary color special.", m.Pal.Supporting) + contextSection(m.Pal) + jsonSection(m)
+}
+
+// Live previews avoid generating a PDF on every pointer movement. The static
+// browser target creates its data URL only when the download is requested.
+func LiveResultHTML(m Model) string {
+	u1 := m
+	u1.Embed = false
+	live := u1
+	return ResultHTML(live)
+}
+
+func ExportDataURL(m Model, pdf bool) string {
+	if pdf {
+		return pdfDataURL(m.Pal)
+	}
+	return jsonDataURL(m.Pal)
 }
 
 // The goforge.dev project metadata, worn the way the other tool pages
 // wear it: a version pill, the install command, and the standard links.
 func projectMeta() string {
 	return "<div class=\"meta\">" + "<span class=\"pill\"><span class=\"dot\"></span>" + Version + "</span>" + "<code class=\"install\"><span class=\"prompt\">$</span> go install goforge.dev/palettegen@latest</code>" + "<nav class=\"meta-links\" aria-label=\"Project links\">" + "<a href=\"https://github.com/brain-fuel/palettegen\">Source repository</a>" + "<a href=\"https://pkg.go.dev/goforge.dev/palettegen\">pkg.go.dev</a>" + "<a href=\"https://goforge.dev/\">goforge.dev</a>" + "</nav></div>"
-}
-
-func noteBanner(m Model) string {
-	if m.Note == "" {
-		return ""
-	}
-	return "<p class=\"note\">" + m.Note + "</p>"
 }
 
 func htmlAttrs(m Model) string {
@@ -329,11 +375,19 @@ func htmlAttrs(m Model) string {
 
 func headAssets(m Model) string {
 	if m.Embed {
-		return "<style>\n" + EmbeddedCSS(m.Pal) + "\n</style>\n"
+		return "<style>\n" + EmbeddedCSS(m.Pal) + "\n</style><style id=\"palette-theme\"></style>\n"
 	}
-	return "<link rel=\"stylesheet\" href=\"style.css\">\n" + "<style>\n" + ThemeCSS(m.Pal) + "\n</style>\n"
+	return "<link rel=\"stylesheet\" href=\"style.css\">\n" + "<style id=\"palette-theme\">\n" + ThemeCSS(m.Pal) + "\n</style>\n" + "<script src=\"wasm_exec.js\" defer></script><script src=\"browser.js\" defer></script>\n"
+}
+
+func PageHead(m Model) string {
+	return "<meta charset=\"utf-8\">\n" + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" + "<title>Palette Forge - complete UI color palettes</title>\n" + "<link rel=\"icon\" href=\"data:,\">" + headAssets(m)
+}
+
+func PageBody(m Model) string {
+	return "<main>\n" + "<header class=\"hero\">" + "<div class=\"hero-top\"><h1>Palette Builder</h1>" + themeToggle(m) + "</div>" + "</header>\n" + "<nav id=\"editor-history-bar\" class=\"editor-history-bar\" aria-label=\"Live palette controls\" hidden>" + "<button id=\"undo-palette\" type=\"button\" class=\"ghost\" disabled>Undo</button><button id=\"redo-palette\" type=\"button\" class=\"ghost\" disabled>Redo</button>" + "<button id=\"open-history\" type=\"button\" class=\"ghost\" aria-expanded=\"false\" aria-controls=\"session-history\">History</button>" + "<button id=\"view-palette\" type=\"button\" class=\"primary\" aria-label=\"View your live palette\">Palette</button></nav>" + "<div id=\"model-note\" role=\"status\">" + NoteHTML(m) + "</div>" + controls(m) + "<div id=\"palette-results\" role=\"region\" aria-label=\"Your palette\">" + ResultHTML(m) + "</div><p id=\"result-status\" class=\"sr-only\" aria-live=\"polite\"></p>" + "\n<footer><details class=\"project-info\"><summary>About Palette Forge</summary>" + projectMeta() + "<p>Palettes and method from <em>Refactoring UI: Color Palettes</em> and <em>Refactoring UI</em> (Adam Wathan &amp; Steve Schoger). " + "Written in goml on the <a href=\"https://goforge.dev\">goforge</a> toolchain. " + "<a href=\"https://github.com/brain-fuel/palettegen/blob/main/LICENSE\">MIT licensed</a>.</p></details></footer>\n" + "</main>\n<div id=\"selection-notice\" class=\"selection-notice\" hidden aria-hidden=\"true\"></div>" + "<p id=\"selection-announcement\" class=\"sr-only\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>"
 }
 
 func RenderPage(m Model) string {
-	return "<!doctype html>\n<html lang=\"en\"" + htmlAttrs(m) + ">\n<head>\n" + "<meta charset=\"utf-8\">\n" + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" + "<title>Palette Forge - complete UI color palettes</title>\n" + headAssets(m) + "</head>\n<body>\n<main>\n" + "<header class=\"hero\">" + "<div class=\"hero-top\"><h1>Palette <span class=\"fleck\">Forge</span></h1>" + themeToggle(m) + "</div>" + "<p class=\"promise\">Pick one color. In seconds you have the full system a real interface needs - ten shades each of a primary, matched neutrals, and supporting colors - not five pretty swatches that fall apart in practice.</p>" + projectMeta() + "</header>\n" + noteBanner(m) + controls(m) + resultSection(m) + "\n<footer>Palettes and method from <em>Refactoring UI: Color Palettes</em> and <em>Refactoring UI</em> (Adam Wathan &amp; Steve Schoger). " + "UX after Joe Natoli; UI after Leonardo da Vinci and Patrick Henry Winston. " + "Written in goml on the <a href=\"https://goforge.dev\">goforge</a> toolchain. " + "<a href=\"https://github.com/brain-fuel/palettegen/blob/main/LICENSE\">MIT licensed</a>.</footer>\n" + "</main>\n</body>\n</html>\n"
+	return "<!doctype html>\n<html lang=\"en\"" + htmlAttrs(m) + ">\n<head>\n" + PageHead(m) + "</head><body>" + PageBody(m) + "</body></html>\n"
 }

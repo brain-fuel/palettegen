@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"goforge.dev/palettegen/palette"
 	"io"
+	"reflect"
 	"strings"
+	"testing/quick"
 )
 
 func check(name string, ok bool) int {
@@ -33,7 +35,7 @@ func shadesMonotonic(sc palette.Scale) bool {
 func anchorPreserved(base palette.Shade, sc palette.Scale) bool {
 	found := false
 	for _, sh := range sc.Shades {
-		if sh.H == base.H && sh.S == base.S && sh.L == base.L {
+		if sh.Hex == base.Hex && sh.H == base.H && sh.S == base.S && sh.L == base.L {
 			found = true
 		}
 	}
@@ -63,8 +65,58 @@ func foundScale(ms MaybeScale) bool {
 	}
 }
 
+func scaleOrdered(sc palette.Scale) bool {
+	good := len(sc.Shades) == 10
+	i := 1
+	for i < len(sc.Shades) {
+		if sc.Shades[i].L < sc.Shades[i-1].L {
+			good = false
+		}
+		i = i + 1
+	}
+	return good
+}
+
+func brandLaw(r byte, g byte, b byte) bool {
+	base := palette.ShadeFromRGB(int(r), int(g), int(b))
+	secondary := palette.ShadeFromRGB(255-int(r), int(b), int(g))
+	original := palette.Generate(base)
+	withSecondary := palette.WithSecondary(original, secondary)
+	rgb := palette.RGBOf(base)
+	return anchorPreserved(base, original.Primary[0]) && anchorPreserved(secondary, withSecondary.Secondary[0]) && scaleOrdered(original.Primary[0]) && scaleOrdered(withSecondary.Secondary[0]) && rgb.R == int(r) && rgb.G == int(g) && rgb.B == int(b) && reflect.DeepEqual(original.Primary, withSecondary.Primary) && reflect.DeepEqual(original.Supporting, withSecondary.Supporting) && reflect.DeepEqual(original.Neutrals, withSecondary.Neutrals) && string(palette.ToJSON(withSecondary)) == string(palette.ToJSON(palette.WithSecondary(palette.Generate(base), secondary)))
+}
+
+func imageLaw(r byte, g byte, b byte, r2 byte, g2 byte, b2 byte) bool {
+	bytes := []byte{r, g, b, 255, r2, g2, b2, 255}
+	colors := palette.ImageColors(bytes)
+	again := palette.ImageColors(bytes)
+	first := palette.ShadeFromRGB(int(r), int(g), int(b))
+	second := palette.ShadeFromRGB(int(r2), int(g2), int(b2))
+	valid := len(colors) >= 1 && len(colors) <= 2 && len(colors) == len(again)
+	for i, color := range colors {
+		if color.Hex != first.Hex && color.Hex != second.Hex {
+			valid = false
+		}
+		if color.Hex != again[i].Hex {
+			valid = false
+		}
+	}
+	return valid
+}
+
+func chromeInkLaw(r byte, g byte, b byte) bool {
+	p := palette.Generate(palette.ShadeFromRGB(int(r), int(g), int(b)))
+	pr := p.Primary[0].Shades
+	nu := p.Neutrals[0].Shades
+	light := palette.ParsedShade(palette.ParseHex(accentInkFor(pr[0], nu[9], nu[0])))
+	dark := palette.ParsedShade(palette.ParseHex(accentInkFor(pr[8], nu[1], nu[9])))
+	return inkContrast(light, nu[9]) >= 4.5 && inkContrast(dark, nu[1]) >= 4.5
+}
+
 func RunChecks() int {
 	fails := 0
+	chromeErr := quick.Check(chromeInkLaw, nil)
+	fails = fails + check("arbitrary sampled colors retain readable control ink", chromeErr == nil && chromeInkLaw(150, 150, 0))
 	fails = fails + check("24 curated palettes", len(palette.Curated()) == 24)
 	fails = fails + check("30 reference scales", len(palette.Reference()) == 30)
 	fails = fails + check("reference scales all have 10 shades", allTenShades(palette.Reference()))
@@ -79,6 +131,7 @@ func RunChecks() int {
 	fails = fails + check("hsl of #2CB1BC is (185, 62, 45)", sh.H == 185.0 && sh.S == 62.0 && sh.L == 45.0)
 	fails = fails + check("short and unhashed hex parse", palette.ParsedOk(palette.ParseHex("fff")) && palette.ParsedOk(palette.ParseHex("7C3AED")))
 	fails = fails + check("garbage hex rejected", !palette.ParsedOk(palette.ParseHex("zzz")) && !palette.ParsedOk(palette.ParseHex("#12345")))
+	fails = fails + check("signed hex is rejected", !palette.ParsedOk(palette.ParseHex("+12345")) && !palette.ParsedOk(palette.ParseHex("-12345")))
 	red := palette.ParsedShade(palette.ParseHex("#D64545"))
 	gen := palette.Generate(red)
 	fails = fails + check("generated primary has 10 shades", len(gen.Primary) == 1 && len(gen.Primary[0].Shades) == 10)
@@ -86,6 +139,35 @@ func RunChecks() int {
 	fails = fails + check("requested color survives as an anchor shade", anchorPreserved(red, gen.Primary[0]))
 	fails = fails + check("red primary keeps warm grey neutrals", len(gen.Neutrals) == 1 && gen.Neutrals[0].Name == "Warm Grey")
 	fails = fails + check("red primary skips the red semantic scale", len(gen.Supporting) == 3)
+	brandErr := quick.Check(brandLaw, nil)
+	fails = fails + check("brand law: exact colors, ordered scales, independence, determinism", brandErr == nil)
+	if brandErr != nil {
+		fmt.Println(brandErr)
+	}
+	edges := []string{"#000000", "#FFFFFF", "#FFFF00", "#FFFFFE", "#000001"}
+	for _, hx := range edges {
+		base := palette.ParsedShade(palette.ParseHex(hx))
+		sc := palette.Generate(base).Primary[0]
+		fails = fails + check("edge color exact and ordered "+hx, anchorPreserved(base, sc) && scaleOrdered(sc))
+	}
+	imageErr := quick.Check(imageLaw, nil)
+	fails = fails + check("image law: deterministic actual source colors", imageErr == nil)
+	transparent := []byte{255, 0, 0, 0}
+	fails = fails + check("transparent images have no suggested colors", len(palette.ImageColors(transparent)) == 0)
+	partial := []byte{255, 0, 0, 128}
+	partialColors := palette.ImageColors(partial)
+	fails = fails + check("partial alpha is sampled over white", len(partialColors) == 1 && partialColors[0].Hex == "#FF7F7F")
+	pair := ModelFromQuery("?c=7c3aed&s=e87924&t=dark", false)
+	fails = fails + check("secondary is canonical URL state", pair.SecondaryHex == "#E87924" && pair.QS == "c=7C3AED&s=E87924" && pair.Theme == "dark")
+	fails = fails + check("secondary has its own JSON field", strings.Contains(string(palette.ToJSON(pair.Pal)), "\"secondary\""))
+	fails = fails + check("single-color JSON omits secondary", !strings.Contains(string(palette.ToJSON(gen)), "\"secondary\""))
+	badSecondary := ModelFromQuery("?c=7C3AED&s=invalid", false)
+	fails = fails + check("invalid secondary retains primary", badSecondary.Hex == "#7C3AED" && len(badSecondary.Pal.Secondary) == 0 && badSecondary.Note != "")
+	customBook := ModelFromQuery("?p=12&s=E87924", false)
+	fails = fails + check("custom book is not labeled verbatim", len(customBook.Pal.Secondary) == 1 && !strings.Contains(customBook.Pal.Basis, "verbatim"))
+	fails = fails + check("similar hue is advisory", PairingGuidance(ModelFromQuery("?c=7C3AED&s=7C3AED", false)) != "")
+	fails = fails + check("similar colors receive a warning tone", PairingTone(ModelFromQuery("?c=7C3AED&s=8B5CF6", false)) == "warning")
+	fails = fails + check("distinct brand roles receive neutral guidance", PairingTone(pair) == "neutral")
 	pool := contextScales(gen)
 	fails = fails + check("success alert scale found", foundScale(findScale(pool, isSuccessHue)))
 	fails = fails + check("warning alert scale found", foundScale(findScale(pool, isWarningHue)))
@@ -100,10 +182,13 @@ func RunChecks() int {
 	fails = fails + check("no href=# anchors on the page", !strings.Contains(page, "href=\"#\""))
 	fails = fails + check("demo buttons are type=button", strings.Contains(page, "<button type=\"button\" class=\"demo-btn\""))
 	fails = fails + check("demo form fields are real inputs", strings.Contains(page, "class=\"mock-input\" placeholder="))
-	fails = fails + check("hero carries version pill and install command", strings.Contains(page, Version) && strings.Contains(page, "go install goforge.dev/palettegen@latest"))
+	fails = fails + check("project metadata retains version and install command", strings.Contains(page, Version) && strings.Contains(page, "go install goforge.dev/palettegen@latest"))
+	fails = fails + check("picture choice precedes manual colors", strings.Index(page, "Pick from a picture") < strings.Index(page, "Or choose colors manually"))
+	fails = fails + check("installation is in the footer, not the task header", strings.Index(page, "<footer>") < strings.Index(page, "go install goforge.dev/palettegen@latest"))
 	fails = fails + check("hero links repo and pkg.go.dev", strings.Contains(page, "github.com/brain-fuel/palettegen") && strings.Contains(page, "pkg.go.dev/goforge.dev/palettegen"))
 	fails = fails + check("overpass 700 decodes as woff2", len(overpass700) > 1000 && strings.HasPrefix(string(overpass700), "wOF2"))
 	fails = fails + check("atkinson faces decode as woff2", strings.HasPrefix(string(atkinson400), "wOF2") && strings.HasPrefix(string(atkinson700), "wOF2") && strings.HasPrefix(string(atkinson400i), "wOF2"))
+	fails = fails + check("atkinson mono faces decode as woff2", strings.HasPrefix(string(atkinsonMono400), "wOF2") && strings.HasPrefix(string(atkinsonMono700), "wOF2"))
 	fails = fails + check("stylesheet wires both families", strings.Contains(Stylesheet, "font-family: 'Overpass'") && strings.Contains(Stylesheet, "'Atkinson Hyperlegible'"))
 	fails = fails + check("unknown font path yields empty", len(FontFor("/fonts/nope.woff2")) == 0)
 	epage := RenderPage(curatedModel(1, "", "", true))
@@ -113,6 +198,8 @@ func RunChecks() int {
 	fails = fails + check("json export is non-empty", len(palette.ToJSON(gen)) > 500)
 	pdfErr := palette.WritePDF(io.Discard, gen)
 	fails = fails + check("pdf renders without error", pdfErr == nil)
+	pairPDFErr := palette.WritePDF(io.Discard, pair.Pal)
+	fails = fails + check("secondary PDF renders with embedded fonts", pairPDFErr == nil)
 	if fails == 0 {
 		fmt.Println("all checks passed")
 	} else {

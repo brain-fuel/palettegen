@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"goforge.dev/palettegen/browserassets"
 	"goforge.dev/palettegen/palette"
 	"goforge.dev/palettegen/web"
 	"io"
@@ -60,6 +61,31 @@ func handleFont(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleBrowser(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	data := browserassets.Asset(path)
+	if len(data) == 0 {
+		http.NotFound(w, r)
+	} else {
+		headers := w.Header()
+		var __gp_v0 string
+		if path == "/app.wasm" {
+			__gp_v0 = "application/wasm"
+		} else {
+			var __gp_v1 string
+			if path == "/app.wasm.gz" {
+				__gp_v1 = "application/gzip"
+			} else {
+				__gp_v1 = "text/javascript; charset=utf-8"
+			}
+			__gp_v0 = __gp_v1
+		}
+		headers.Set("Content-Type", __gp_v0)
+		headers.Set("Cache-Control", "no-cache")
+		emitBytes(w, data)
+	}
+}
+
 func handleJSON(w http.ResponseWriter, r *http.Request) {
 	m := modelFrom(r)
 	h := w.Header()
@@ -95,6 +121,10 @@ func main() {
 	http.HandleFunc("/", handlePage)
 	http.HandleFunc("/style.css", handleCSS)
 	http.HandleFunc("/fonts/", handleFont)
+	http.HandleFunc("/app.wasm", handleBrowser)
+	http.HandleFunc("/app.wasm.gz", handleBrowser)
+	http.HandleFunc("/wasm_exec.js", handleBrowser)
+	http.HandleFunc("/browser.js", handleBrowser)
 	http.HandleFunc("/palette.json", handleJSON)
 	http.HandleFunc("/palette.pdf", handlePDF)
 	port := portFrom(os.Getenv("PORT"))

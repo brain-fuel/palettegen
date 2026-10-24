@@ -16,6 +16,8 @@ let overpass700 := decodeFont overpass700B64
 let atkinson400 := decodeFont atkinson400B64
 let atkinson700 := decodeFont atkinson700B64
 let atkinson400i := decodeFont atkinson400iB64
+let atkinsonMono400 := decodeFont atkinsonMono400B64
+let atkinsonMono700 := decodeFont atkinsonMono700B64
 
 -- FontFor maps a request path to font bytes; empty means not found.
 let FontFor (p : String) : Slice Byte :=
@@ -23,4 +25,6 @@ let FontFor (p : String) : Slice Byte :=
   else if p == "/fonts/atkinson-400.woff2" then atkinson400
   else if p == "/fonts/atkinson-700.woff2" then atkinson700
   else if p == "/fonts/atkinson-400-italic.woff2" then atkinson400i
+  else if p == "/fonts/atkinson-mono-400.woff2" then atkinsonMono400
+  else if p == "/fonts/atkinson-mono-700.woff2" then atkinsonMono700
   else noFontBytes ()

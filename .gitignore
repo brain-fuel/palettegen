@@ -1,2 +1,7 @@
 /palettegen
 /try/app.wasm
+/try/app.wasm.gz
+/try/wasm_exec.js
+/try/browser.js
+/tools/node_modules/
+/tmp/

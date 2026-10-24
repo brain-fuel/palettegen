@@ -11,17 +11,18 @@ import (
 	"strings"
 )
 
-var Version string = "v0.2.0"
+var Version string = "v0.3.0"
 
 type Model struct {
-	Mode      string
-	Hex       string
-	CuratedID int
-	QS        string
-	Note      string
-	Theme     string
-	Embed     bool
-	Pal       palette.Palette
+	Mode         string
+	Hex          string
+	SecondaryHex string
+	CuratedID    int
+	QS           string
+	Note         string
+	Theme        string
+	Embed        bool
+	Pal          palette.Palette
 }
 
 // "light" and "dark" are honored; anything else means "follow the OS".
@@ -52,11 +53,11 @@ func pickerHex(m Model) string {
 }
 
 func curatedModel(id int, note string, theme string, embed bool) Model {
-	return Model{Mode: "curated", Hex: "", CuratedID: id, QS: fmt.Sprintf("p=%d", id), Note: note, Theme: theme, Embed: embed, Pal: palette.FromCurated(id)}
+	return Model{Mode: "curated", Hex: "", SecondaryHex: "", CuratedID: id, QS: fmt.Sprintf("p=%d", id), Note: note, Theme: theme, Embed: embed, Pal: palette.FromCurated(id)}
 }
 
 func generatedModel(sh palette.Shade, theme string, embed bool) Model {
-	return Model{Mode: "generated", Hex: sh.Hex, CuratedID: 0, QS: "c=" + strings.TrimPrefix(sh.Hex, "#"), Note: "", Theme: theme, Embed: embed, Pal: palette.Generate(sh)}
+	return Model{Mode: "generated", Hex: sh.Hex, SecondaryHex: "", CuratedID: 0, QS: "c=" + strings.TrimPrefix(sh.Hex, "#"), Note: "", Theme: theme, Embed: embed, Pal: palette.Generate(sh)}
 }
 
 // The freshly-typed hex wins over the picker; empty means "not given".
@@ -68,7 +69,7 @@ func pickColor(hx string, c string) string {
 }
 
 // ModelFromValues builds the page model from URL query parameters.
-func ModelFromValues(q url.Values, embed bool) Model {
+func baseModelFromValues(q url.Values, embed bool) Model {
 	theme := sanitizeTheme(q.Get("t"))
 	pRaw := q.Get("p")
 	colorRaw := pickColor(q.Get("hx"), q.Get("c"))
@@ -87,6 +88,48 @@ func ModelFromValues(q url.Values, embed bool) Model {
 		return curatedModel(1, "Could not read that color - showing Palette 1 instead. Try a hex like #7C3AED.", theme, embed)
 	}
 	return curatedModel(1, "", theme, embed)
+}
+
+func ModelFromValues(q url.Values, embed bool) Model {
+	m := baseModelFromValues(q, embed)
+	raw := strings.TrimSpace(q.Get("s"))
+	if raw == "" {
+		return m
+	}
+	parsed := palette.ParseHex(raw)
+	if palette.ParsedOk(parsed) {
+		sh := palette.ParsedShade(parsed)
+		u1 := m
+		u1.SecondaryHex = sh.Hex
+		u1.QS = m.QS + "&s=" + strings.TrimPrefix(sh.Hex, "#")
+		u1.Pal = palette.WithSecondary(m.Pal, sh)
+		return u1
+	}
+	u2 := m
+	u2.SecondaryHex = raw
+	u2.Note = "Could not read the secondary color. Your starting palette is kept; try a hex like #E87924."
+	return u2
+}
+
+func PickerHex(m Model) string {
+	return pickerHex(m)
+}
+
+func PairingGuidance(m Model) string {
+	a := palette.ParseHex(pickerHex(m))
+	b := palette.ParseHex(m.SecondaryHex)
+	if !palette.ParsedOk(b) {
+		return ""
+	}
+	primary := palette.ParsedShade(a)
+	secondary := palette.ParsedShade(b)
+	if primary.Hex == secondary.Hex {
+		return "These are the same color. You can keep both roles, or choose another color for more distinction."
+	}
+	if primary.S >= 15.0 && secondary.S >= 15.0 && palette.HueDistance(primary.H, secondary.H) <= 25.0 {
+		return "These colors have a similar hue. Use different shades or placement to make their roles clear."
+	}
+	return "Your secondary is a second brand color. The complementary accent is generated separately."
 }
 
 // ModelFromQuery parses a raw query string ("?c=7C3AED&t=dark" or without

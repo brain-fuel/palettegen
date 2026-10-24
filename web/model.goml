@@ -1,7 +1,7 @@
 module web
 
 -- The page model and URL-state parsing, shared by the server binary and
--- the WebAssembly "try it" build. All state lives in the URL; Embed marks
+-- the WebAssembly "try it" build. Palette state lives in the URL; Embed marks
 -- the wasm build, where downloads become data: URLs and assets inline.
 
 import "fmt"
@@ -10,11 +10,12 @@ import "strconv"
 import "strings"
 import "goforge.dev/palettegen/palette"
 
-let Version : String := "v0.2.0"
+let Version : String := "v0.3.0"
 
 type Model := {
   Mode : String;
   Hex : String;
+  SecondaryHex : String;
   CuratedID : Int;
   QS : String;
   Note : String;
@@ -43,6 +44,7 @@ let curatedModel (id : Int) (note : String) (theme : String) (embed : Bool) : Mo
   Model {
     Mode = "curated",
     Hex = "",
+    SecondaryHex = "",
     CuratedID = id,
     QS = fmt.Sprintf "p=%d" id,
     Note = note,
@@ -55,6 +57,7 @@ let generatedModel (sh : palette.Shade) (theme : String) (embed : Bool) : Model 
   Model {
     Mode = "generated",
     Hex = sh.Hex,
+    SecondaryHex = "",
     CuratedID = 0,
     QS = "c=" + strings.TrimPrefix sh.Hex "#",
     Note = "",
@@ -68,7 +71,7 @@ let pickColor (hx : String) (c : String) : String :=
   if strings.TrimSpace hx != "" then hx else c
 
 -- ModelFromValues builds the page model from URL query parameters.
-let ModelFromValues (q : url.Values) (embed : Bool) : Model := do {
+let baseModelFromValues (q : url.Values) (embed : Bool) : Model := do {
   let theme := sanitizeTheme (q.Get "t");
   let pRaw := q.Get "p";
   let colorRaw := pickColor (q.Get "hx") (q.Get "c");
@@ -83,6 +86,37 @@ let ModelFromValues (q : url.Values) (embed : Bool) : Model := do {
       then generatedModel (palette.ParsedShade parsed) theme embed
       else curatedModel 1 "Could not read that color - showing Palette 1 instead. Try a hex like #7C3AED." theme embed
   } else curatedModel 1 "" theme embed
+}
+
+let ModelFromValues (q : url.Values) (embed : Bool) : Model := do {
+  let m := baseModelFromValues q embed;
+  let raw := strings.TrimSpace (q.Get "s");
+  if raw == "" then m else do {
+    let parsed := palette.ParseHex raw;
+    if palette.ParsedOk parsed then do {
+      let sh := palette.ParsedShade parsed;
+      { m with SecondaryHex = sh.Hex,
+        QS = m.QS + "&s=" + strings.TrimPrefix sh.Hex "#",
+        Pal = palette.WithSecondary m.Pal sh }
+    } else { m with SecondaryHex = raw,
+      Note = "Could not read the secondary color. Your starting palette is kept; try a hex like #E87924." }
+  }
+}
+
+let PickerHex (m : Model) : String := pickerHex m
+
+let PairingGuidance (m : Model) : String := do {
+  let a := palette.ParseHex (pickerHex m);
+  let b := palette.ParseHex m.SecondaryHex;
+  if !(palette.ParsedOk b) then "" else do {
+    let primary := palette.ParsedShade a;
+    let secondary := palette.ParsedShade b;
+    if primary.Hex == secondary.Hex then
+      "These are the same color. You can keep both roles, or choose another color for more distinction."
+    else if primary.S >= 15.0 && secondary.S >= 15.0 && palette.HueDistance primary.H secondary.H <= 25.0 then
+      "These colors have a similar hue. Use different shades or placement to make their roles clear."
+    else "Your secondary is a second brand color. The complementary accent is generated separately."
+  }
 }
 
 -- ModelFromQuery parses a raw query string ("?c=7C3AED&t=dark" or without

@@ -9,6 +9,7 @@ import (
 
 type CategoryNotes struct {
 	Primary    string `json:"primary"`
+	Secondary  string `json:"secondary,omitempty"`
 	Neutrals   string `json:"neutrals"`
 	Supporting string `json:"supporting"`
 }
@@ -17,6 +18,7 @@ type ExportDoc struct {
 	Name       string        `json:"name"`
 	Basis      string        `json:"basis"`
 	Primary    []Scale       `json:"primary"`
+	Secondary  []Scale       `json:"secondary,omitempty"`
 	Neutrals   []Scale       `json:"neutrals"`
 	Supporting []Scale       `json:"supporting"`
 	Notes      CategoryNotes `json:"categoryNotes"`
@@ -28,7 +30,13 @@ func noBytes() []byte {
 
 // ToJSON renders a palette as pretty JSON.
 func ToJSON(p Palette) []byte {
-	doc := ExportDoc{Name: p.Name, Basis: p.Basis, Primary: p.Primary, Neutrals: p.Neutrals, Supporting: p.Supporting, Notes: CategoryNotes{Primary: DescPrimary, Neutrals: DescNeutrals, Supporting: DescSupporting}}
+	var __gp_v0 string
+	if len(p.Secondary) > 0 {
+		__gp_v0 = DescSecondary
+	} else {
+		__gp_v0 = ""
+	}
+	doc := ExportDoc{Name: p.Name, Basis: p.Basis, Primary: p.Primary, Secondary: p.Secondary, Neutrals: p.Neutrals, Supporting: p.Supporting, Notes: CategoryNotes{Primary: DescPrimary, Secondary: __gp_v0, Neutrals: DescNeutrals, Supporting: DescSupporting}}
 	bs, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return noBytes()

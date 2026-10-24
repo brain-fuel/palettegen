@@ -3,12 +3,12 @@
 
 GOML ?= goml
 
-.PHONY: gen build run check ci data fonts wasm site clean
+.PHONY: gen build run check ci data fonts wasm browser-assets browser-check site clean
 
 gen:
 	$(GOML) gen ./...
 
-build: gen
+build: browser-assets
 	go build -o palettegen .
 
 run: build
@@ -20,7 +20,10 @@ check: build
 # CI: fail if committed *_gml.go is stale, then build and self-check.
 ci:
 	$(GOML) gen -check ./...
+	GOOS=js GOARCH=wasm $(GOML) gen -check ./_browser
 	go build ./...
+	GOOS=js GOARCH=wasm go build -trimpath -ldflags='-s -w' -o try/app.wasm ./_browser
+	python3 tools/gen_browser.py --check
 	go build -o palettegen . && ./palettegen check
 
 # Regenerate palette/data.goml from the book extraction (tools/palettes.json).
@@ -30,18 +33,33 @@ data:
 
 # The WebAssembly build behind goforge.dev/palettegen/try.
 wasm: gen
-	GOOS=js GOARCH=wasm go build -o try/app.wasm ./try
+	GOOS=js GOARCH=wasm $(GOML) gen ./_browser
+	GOOS=js GOARCH=wasm go build -trimpath -ldflags='-s -w' -o try/app.wasm ./_browser
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" try/wasm_exec.js
+	cp tools/browser_bootstrap.js try/browser.js
+	python3 tools/gen_browser.py --pack-only
+
+browser-assets: wasm
+	python3 tools/gen_browser.py
+	$(GOML) gen ./browserassets
+
+browser-check: build
+	npm --prefix tools ci
+	npm --prefix tools run check
 
 # Copy the wasm and Go's runtime shim into the goforge.dev site checkout.
 SITE ?= ../dev.goforge
 site: wasm
 	mkdir -p $(SITE)/static/palettegen/try
 	cp try/app.wasm $(SITE)/static/palettegen/try/app.wasm
+	cp try/app.wasm.gz $(SITE)/static/palettegen/try/app.wasm.gz
+	cp try/index.html $(SITE)/static/palettegen/try/index.html
+	cp tools/browser_bootstrap.js $(SITE)/static/palettegen/try/browser.js
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(SITE)/static/palettegen/try/wasm_exec.js
 
 # Re-download and re-embed the fonts (Overpass, Atkinson Hyperlegible).
 fonts:
-	python3 tools/gen_fonts.py
+	uv run --with 'fonttools[woff]==4.67.0' python tools/gen_fonts.py
 	$(MAKE) gen
 
 clean:

@@ -25,6 +25,7 @@ type Palette struct {
 	Name       string  `json:"name"`
 	Basis      string  `json:"basis"`
 	Primary    []Scale `json:"primary"`
+	Secondary  []Scale `json:"secondary,omitempty"`
 	Neutrals   []Scale `json:"neutrals"`
 	Supporting []Scale `json:"supporting"`
 }
@@ -132,92 +133,99 @@ func ShiftScale(seed Scale, base Shade, name string) Scale {
 		h2 := normHue(sh.H + dh)
 		s2 := clampPct(sh.S * (1.0 + (ratio-1.0)*w))
 		l2 := clampPct(sh.L + dl*w)
-		out = append(out, MakeShade(h2, s2, l2))
+		shifted := MakeShade(h2, s2, l2)
+		var __gp_v2 Shade
+		if i == a && base.Hex != "" {
+			__gp_v2 = base
+		} else {
+			__gp_v2 = shifted
+		}
+		out = append(out, __gp_v2)
 	}
 	return Scale{Name: name, Shades: out}
 }
 
 // Name a hue the way the book names its scales.
 func HueName(h float64, s float64) string {
-	var __gp_v2 string
+	var __gp_v3 string
 	if h < 15.0 {
-		__gp_v2 = "Red"
+		__gp_v3 = "Red"
 	} else {
-		var __gp_v3 string
+		var __gp_v4 string
 		if h < 40.0 {
-			__gp_v3 = "Orange"
+			__gp_v4 = "Orange"
 		} else {
-			var __gp_v4 string
+			var __gp_v5 string
 			if h < 70.0 {
-				__gp_v4 = "Yellow"
+				__gp_v5 = "Yellow"
 			} else {
-				var __gp_v5 string
+				var __gp_v6 string
 				if h < 95.0 {
-					__gp_v5 = "Lime Green"
+					__gp_v6 = "Lime Green"
 				} else {
-					var __gp_v6 string
+					var __gp_v7 string
 					if h < 150.0 {
-						__gp_v6 = "Green"
+						__gp_v7 = "Green"
 					} else {
-						var __gp_v7 string
+						var __gp_v8 string
 						if h < 175.0 {
-							__gp_v7 = "Teal"
+							__gp_v8 = "Teal"
 						} else {
-							var __gp_v8 string
+							var __gp_v9 string
 							if h < 195.0 {
-								__gp_v8 = "Cyan"
+								__gp_v9 = "Cyan"
 							} else {
-								var __gp_v9 string
+								var __gp_v10 string
 								if h < 215.0 {
-									__gp_v9 = "Light Blue"
+									__gp_v10 = "Light Blue"
 								} else {
-									var __gp_v10 string
+									var __gp_v11 string
 									if h < 250.0 {
-										__gp_v10 = "Blue"
+										__gp_v11 = "Blue"
 									} else {
-										var __gp_v11 string
+										var __gp_v12 string
 										if h < 275.0 {
-											__gp_v11 = "Indigo"
+											__gp_v12 = "Indigo"
 										} else {
-											var __gp_v12 string
+											var __gp_v13 string
 											if h < 305.0 {
-												__gp_v12 = "Purple"
+												__gp_v13 = "Purple"
 											} else {
-												var __gp_v13 string
+												var __gp_v14 string
 												if h < 330.0 {
-													__gp_v13 = "Magenta"
+													__gp_v14 = "Magenta"
 												} else {
-													var __gp_v14 string
+													var __gp_v15 string
 													if h < 345.0 {
-														__gp_v14 = "Pink"
+														__gp_v15 = "Pink"
 													} else {
-														__gp_v14 = "Red"
+														__gp_v15 = "Red"
 													}
-													__gp_v13 = __gp_v14
+													__gp_v14 = __gp_v15
 												}
-												__gp_v12 = __gp_v13
+												__gp_v13 = __gp_v14
 											}
-											__gp_v11 = __gp_v12
+											__gp_v12 = __gp_v13
 										}
-										__gp_v10 = __gp_v11
+										__gp_v11 = __gp_v12
 									}
-									__gp_v9 = __gp_v10
+									__gp_v10 = __gp_v11
 								}
-								__gp_v8 = __gp_v9
+								__gp_v9 = __gp_v10
 							}
-							__gp_v7 = __gp_v8
+							__gp_v8 = __gp_v9
 						}
-						__gp_v6 = __gp_v7
+						__gp_v7 = __gp_v8
 					}
-					__gp_v5 = __gp_v6
+					__gp_v6 = __gp_v7
 				}
-				__gp_v4 = __gp_v5
+				__gp_v5 = __gp_v6
 			}
-			__gp_v3 = __gp_v4
+			__gp_v4 = __gp_v5
 		}
-		__gp_v2 = __gp_v3
+		__gp_v3 = __gp_v4
 	}
-	base := __gp_v2
+	base := __gp_v3
 	if s >= 70.0 {
 		return base + " (Vivid)"
 	}
@@ -272,11 +280,24 @@ func Generate(base Shade) Palette {
 			}
 		}
 	}
-	return Palette{Name: primaryName + " " + strings.ToUpper(base.Hex), Basis: fmt.Sprintf("Generated from %s using the Refactoring UI methodology (seed scale: %s)", strings.ToUpper(base.Hex), seed.Name), Primary: []Scale{primary}, Neutrals: []Scale{neutral}, Supporting: supporting}
+	return Palette{Name: primaryName + " " + strings.ToUpper(base.Hex), Basis: fmt.Sprintf("Generated from %s using the Refactoring UI methodology (seed scale: %s)", strings.ToUpper(base.Hex), seed.Name), Primary: []Scale{primary}, Secondary: noScales(), Neutrals: []Scale{neutral}, Supporting: supporting}
 }
 
 // A curated palette from the book, verbatim.
 func FromCurated(id int) Palette {
 	bp := CuratedAt(id)
-	return Palette{Name: bp.Name, Basis: "Refactoring UI: Color Palettes v1.1.0, " + bp.Name + " (verbatim)", Primary: bp.Primary, Neutrals: bp.Neutrals, Supporting: bp.Supporting}
+	return Palette{Name: bp.Name, Basis: "Refactoring UI: Color Palettes v1.1.0, " + bp.Name + " (verbatim)", Primary: bp.Primary, Secondary: noScales(), Neutrals: bp.Neutrals, Supporting: bp.Supporting}
+}
+
+var DescSecondary string = "A second brand color, with its own light and dark shades. Use it for brand highlights and categories while keeping your primary actions recognizable. The complementary accent and semantic colors retain their own roles."
+
+// Adding a brand scale never changes the primary, neutrals, or accents.
+func WithSecondary(p Palette, base Shade) Palette {
+	sc := ShiftScale(Nearest(base, ColorSeeds()), base, HueName(base.H, base.S))
+	scales := []Scale{sc}
+	u1 := p
+	u1.Name = p.Name + " + " + base.Hex
+	u1.Basis = strings.ReplaceAll(p.Basis, " (verbatim)", " (customized)") + "; secondary brand color " + base.Hex
+	u1.Secondary = scales
+	return u1
 }

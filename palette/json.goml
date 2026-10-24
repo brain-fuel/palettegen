@@ -6,6 +6,7 @@ import "encoding/json"
 
 type CategoryNotes := {
   Primary : String @[json "primary"];
+  Secondary : String @[json "secondary,omitempty"];
   Neutrals : String @[json "neutrals"];
   Supporting : String @[json "supporting"]
 }
@@ -14,6 +15,7 @@ type ExportDoc := {
   Name : String @[json "name"];
   Basis : String @[json "basis"];
   Primary : Slice Scale @[json "primary"];
+  Secondary : Slice Scale @[json "secondary,omitempty"];
   Neutrals : Slice Scale @[json "neutrals"];
   Supporting : Slice Scale @[json "supporting"];
   Notes : CategoryNotes @[json "categoryNotes"]
@@ -27,10 +29,12 @@ let ToJSON (p : Palette) : Slice Byte := do {
     Name = p.Name,
     Basis = p.Basis,
     Primary = p.Primary,
+    Secondary = p.Secondary,
     Neutrals = p.Neutrals,
     Supporting = p.Supporting,
     Notes = CategoryNotes {
       Primary = DescPrimary,
+      Secondary = if len p.Secondary > 0 then DescSecondary else "",
       Neutrals = DescNeutrals,
       Supporting = DescSupporting
     }

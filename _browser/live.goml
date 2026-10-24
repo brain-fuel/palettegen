@@ -1,0 +1,161 @@
+module main
+
+import "net/url"
+import "strings"
+import "syscall/js"
+import "goforge.dev/palettegen/palette"
+import "goforge.dev/palettegen/web"
+
+let activeRole : String := "primary"
+let sampleRole : String := ""
+let assignedSampleHex : String := ""
+let livePending : Bool := false
+let liveCallback := js.Func {}
+
+let clearSampleAssignment () : Unit := do { sampleRole := ""; assignedSampleHex := "" }
+
+let normalizedHex (raw : String) : String := do {
+  let parsed := palette.ParseHex raw;
+  if palette.ParsedOk parsed then (palette.ParsedShade parsed).Hex else ""
+}
+
+let roleHex (role : String) : String :=
+  normalizedHex (valueAt (if role == "secondary" then "secondary-hex" else "primary-hex"))
+
+let hideSelectionNotice () : Unit := do {
+  (js.Global ()).Call "clearTimeout" noticeTimer;
+  show "selection-notice" false;
+  textAt "selection-announcement" ""
+}
+
+let paintRole () : Unit := do {
+  -- Manual edits, removal and recovery must not leave a stale link to a role.
+  if sampleRole != "" && roleHex sampleRole != assignedSampleHex then do {
+    clearSampleAssignment (); hideSelectionNotice ();
+    status "neutral" ""
+  } else ();
+  (element "pick-primary").Set "disabled" (sampleHex == "");
+  (element "pick-secondary").Set "disabled" (sampleHex == "");
+  (element "pick-primary").Call "setAttribute" "aria-pressed" (if sampleRole == "primary" then "true" else "false");
+  (element "pick-secondary").Call "setAttribute" "aria-pressed" (if sampleRole == "secondary" then "true" else "false");
+  textAt "sampling-role" (if sampleRole == "secondary" then "Fine-tuning Secondary" else if sampleRole == "primary" then "Fine-tuning Primary" else if sampleHex == "" then "Choose a picture color" else "Preview · not assigned");
+  (element "history-role").Set "value" activeRole;
+  ()
+}
+
+let sampleGuidance () : Unit := do {
+  paintRole ();
+  status "neutral" ""
+}
+
+-- A fresh source selection never inherits the last assignment target. An
+-- exact match to one existing role may be refined without assigning again.
+let matchSampleAssignment () : Unit := do {
+  if sampleHex != "" then do {
+    let first := roleHex "primary" == sampleHex;
+    let second := roleHex "secondary" == sampleHex;
+    if first != second then do {
+      sampleRole := if second then "secondary" else "primary";
+      assignedSampleHex := sampleHex
+    } else ();
+    sampleGuidance ()
+  } else paintRole ()
+}
+
+let applySample (hex : String) : Unit := do {
+  journalColor hex;
+  if activeRole == "secondary" then setSecondary hex else setPrimary hex;
+  scheduleLive ();
+  paintRole ()
+}
+
+let assignSample (role : String) : Unit := do {
+  if sampleHex != "" then do {
+    flushLive (); commitPalette ();
+    activeRole := role; sampleRole := role; assignedSampleHex := sampleHex;
+    applySample sampleHex; flushLive (); commitPalette ();
+    sampleGuidance ();
+    selectionNotice (if role == "secondary" then "Secondary" else "Primary") sampleHex
+  } else ()
+}
+
+let finishSampleGesture () : Unit := do {
+  flushLive ();
+  if sampleRole != "" && sampleHex != "" then do {
+    commitPalette ();
+    selectionNotice (if sampleRole == "secondary" then "Secondary" else "Primary") sampleHex
+  } else do { paintHistory (); saveSession () }
+}
+
+-- Update once per animation frame, while retaining every sampled color.
+-- Editing a shorthand hex never replaces the user's partially typed text.
+let flushLive () : Unit := do {
+  if livePending then do {
+    livePending := false;
+    let primaryRaw := valueAt "primary-hex";
+    let primaryPicker := valueAt "primary-picker";
+    let secondaryRaw := valueAt "secondary-hex";
+    let first := palette.ParseHex (if strings.TrimSpace primaryRaw == "" then primaryPicker else primaryRaw);
+    let second := palette.ParseHex secondaryRaw;
+    if palette.ParsedOk first && (strings.TrimSpace secondaryRaw == "" || palette.ParsedOk second) then do {
+      let q := make (url.Values);
+      let firstHex := (palette.ParsedShade first).Hex;
+      if current.Mode == "curated" && firstHex == web.PickerHex current
+        then q.Set "p" (valueAt "curated-id") else q.Set "c" firstHex;
+      q.Set "s" secondaryRaw; q.Set "t" current.Theme;
+      let next := web.ModelFromValues q current.Embed;
+      if next.QS != current.QS then do {
+        let opened := (element "secondary-controls").Get "open" |> jsBool;
+        let book := valueAt "curated-id";
+        renderModel next false;
+        (element "primary-hex").Set "value" primaryRaw;
+        (element "primary-picker").Set "value" primaryPicker;
+        (element "secondary-hex").Set "value" secondaryRaw;
+        (element "secondary-controls").Set "open" opened;
+        (element "curated-id").Set "value" book;
+        updatePairing ();
+        journalPalette (); paintHistory ()
+      } else ()
+    } else ()
+  } else ()
+}
+
+let liveFrame (this : js.Value) (args : Slice js.Value) : Any := do { flushLive (); nil }
+
+let scheduleLive () : Unit := do {
+  if !livePending then do {
+    livePending := true;
+    (js.Global ()).Call "requestAnimationFrame" liveCallback;
+    ()
+  } else ()
+}
+
+let fieldCommitted (event : js.Value) : Any := do { flushLive (); commitPalette (); nil }
+let primaryFocused (event : js.Value) : Any := do { activeRole := "primary"; paintRole (); nil }
+let secondaryFocused (event : js.Value) : Any := do { activeRole := "secondary"; paintRole (); nil }
+let historyRoleChanged (event : js.Value) : Any := do { activeRole := valueAt "history-role"; paintRole (); saveSession (); nil }
+
+let focusPalette () : Unit := do {
+  flushLive (); commitPalette ();
+  show "session-history" false;
+  (element "open-history").Call "setAttribute" "aria-expanded" "false";
+  let heading := element "result-heading";
+  let options := ((js.Global ()).Get "Object").New ();
+  options.Set "preventScroll" true;
+  heading.Call "focus" options;
+  heading.Call "scrollIntoView";
+  ()
+}
+
+let viewPalette (event : js.Value) : Any := do { focusPalette (); nil }
+
+let beforeLeaving (event : js.Value) : Any := do { flushLive (); saveSession (); nil }
+
+let staticDownload (link : js.Value) : Unit := do {
+  let isPDF := (link.Get "classList").Call "contains" "pdf" |> jsBool;
+  let anchor := document.Call "createElement" "a";
+  anchor.Set "href" (web.ExportDataURL current isPDF);
+  anchor.Set "download" (web.FileStem current + (if isPDF then ".pdf" else ".json"));
+  anchor.Call "click";
+  ()
+}

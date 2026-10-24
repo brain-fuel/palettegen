@@ -190,7 +190,17 @@ func MakeShade(h float64, s float64, l float64) Shade {
 }
 
 func RGBOf(sh Shade) RGB {
+	raw := strings.TrimPrefix(sh.Hex, "#")
+	n, err := strconv.ParseInt(raw, 16, 32)
+	if len(raw) == 6 && err == nil {
+		v := int(n)
+		return RGB{R: v / 65536, G: v / 256 % 256, B: v % 256}
+	}
 	return hslToRGB(sh.H, sh.S, sh.L)
+}
+
+func ShadeFromRGB(r int, g int, b int) Shade {
+	return rgbToShade(fmt.Sprintf("#%02X%02X%02X", r, g, b), r, g, b)
 }
 
 // Perceived brightness 0..255, the formula Refactoring UI cites:
@@ -252,7 +262,7 @@ func ParseHex(raw string) Parsed {
 		__gp_v6 = t0
 	}
 	t := __gp_v6
-	if len(t) != 6 {
+	if len(t) != 6 || strings.ContainsAny(t, "+-") {
 		return Bad{}
 	}
 	n, err := strconv.ParseInt(t, 16, 32)

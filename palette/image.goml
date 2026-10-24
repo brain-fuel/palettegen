@@ -1,0 +1,155 @@
+module palette
+
+-- Deterministic, weighted median-cut extraction. The browser supplies a small
+-- RGBA bitmap; no image or browser APIs enter the pure palette package.
+
+type ColorPoint := { Color : RGB; Count : Int }
+type ColorBox := { Points : Slice ColorPoint; Count : Int; Axis : Int; Low : Int; High : Int }
+type Frequency := { Count : Int }
+type BoxSplit := { Left : ColorBox; Right : ColorBox }
+
+let channel (c : RGB) (axis : Int) : Int :=
+  if axis == 0 then c.R else if axis == 1 then c.G else c.B
+
+let rgbKey (c : RGB) : Int := c.R * 65536 + c.G * 256 + c.B
+
+let CompositeWhite (r : Int) (g : Int) (b : Int) (a : Int) : RGB :=
+  RGB { R = (r * a + 255 * (255 - a) + 127) / 255,
+    G = (g * a + 255 * (255 - a) + 127) / 255,
+    B = (b * a + 255 * (255 - a) + 127) / 255 }
+
+let colorBox (points : Slice ColorPoint) : ColorBox := do {
+  let mut axis := 0;
+  let mut low := 0;
+  let mut high := 0;
+  let mut weight := 0;
+  for _, p in points do { weight := weight + p.Count };
+  let mut k := 0;
+  while k < 3 do {
+    let mut lo := 255;
+    let mut hi := 0;
+    for _, p in points do {
+      let v := channel p.Color k;
+      if v < lo then do { lo := v } else ();
+      if v > hi then do { hi := v } else ()
+    };
+    if hi - lo > high - low then do { axis := k; low := lo; high := hi } else ();
+    k := k + 1
+  };
+  ColorBox { Points = points, Count = weight, Axis = axis, Low = low, High = high }
+}
+
+let splitBox (box : ColorBox) : BoxSplit := do {
+  let mut bins := make (Slice (Ptr Frequency)) 0;
+  let mut k := 0;
+  while k < 256 do {
+    let bin := Frequency { Count = 0 };
+    bins := append bins &bin;
+    k := k + 1
+  };
+  for _, p in box.Points do {
+    let v := channel p.Color box.Axis;
+    let bin := bins[v];
+    bin.Count := bin.Count + p.Count
+  };
+  let mut cut := box.Low;
+  let mut accumulated := bins[cut].Count;
+  while cut < box.High - 1 && accumulated * 2 < box.Count do {
+    cut := cut + 1;
+    accumulated := accumulated + bins[cut].Count
+  };
+  let mut left := make (Slice ColorPoint) 0;
+  let mut right := make (Slice ColorPoint) 0;
+  for _, p in box.Points do {
+    if channel p.Color box.Axis <= cut
+      then do { left := append left p }
+      else do { right := append right p }
+  };
+  BoxSplit { Left = colorBox left, Right = colorBox right }
+}
+
+let representative (box : ColorBox) : RGB := do {
+  let mut r := 0;
+  let mut g := 0;
+  let mut b := 0;
+  for _, p in box.Points do {
+    r := r + p.Color.R * p.Count;
+    g := g + p.Color.G * p.Count;
+    b := b + p.Color.B * p.Count
+  };
+  r := r / box.Count; g := g / box.Count; b := b / box.Count;
+  let mut best := box.Points[0].Color;
+  let mut distance := 1000000;
+  for _, p in box.Points do {
+    let dr := p.Color.R - r;
+    let dg := p.Color.G - g;
+    let db := p.Color.B - b;
+    let d := dr * dr + dg * dg + db * db;
+    if d < distance || (d == distance && rgbKey p.Color < rgbKey best)
+      then do { best := p.Color; distance := d } else ()
+  };
+  best
+}
+
+-- Up to six actual sampled colors, ordered by represented image area.
+-- Alpha-zero pixels do not invent a dominant white background.
+let ImageColors (rgba : Slice Byte) : Slice Shade := do {
+  let mut bins := make (Slice (Ptr ColorPoint)) 0;
+  let mut k := 0;
+  while k < 32768 do {
+    let bin := ColorPoint { Color = RGB { R = 0, G = 0, B = 0 }, Count = 0 };
+    bins := append bins &bin;
+    k := k + 1
+  };
+  let mut keys := make (Slice Int) 0;
+  let mut i := 0;
+  while i + 3 < len rgba do {
+    let a := Int rgba[i + 3];
+    if a > 0 then do {
+      let c := CompositeWhite (Int rgba[i]) (Int rgba[i + 1]) (Int rgba[i + 2]) a;
+      let key := (c.R / 8) * 1024 + (c.G / 8) * 32 + c.B / 8;
+      let bin := bins[key];
+      if bin.Count == 0 then do { keys := append keys key; bin.Color := c } else ();
+      bin.Count := bin.Count + 1
+    } else ();
+    i := i + 4
+  };
+  let mut points := make (Slice ColorPoint) 0;
+  for _, key in keys do {
+    let bin := bins[key];
+    points := append points (ColorPoint { Color = bin.Color, Count = bin.Count })
+  };
+  let mut out := make (Slice Shade) 0;
+  if len points == 0 then out else do {
+    let mut boxes : Slice ColorBox := [colorBox points];
+    while len boxes < 6 do {
+      let mut chosen := -1;
+      let mut score := 0;
+      for j, box in boxes do {
+        let s := (box.High - box.Low) * box.Count;
+        if s > score then do { chosen := j; score := s } else ()
+      };
+      if chosen < 0 then break else ();
+      let split := splitBox boxes[chosen];
+      let mut next := make (Slice ColorBox) 0;
+      for j, box in boxes do { next := append next (if j == chosen then split.Left else box) };
+      boxes := append next split.Right
+    };
+    while len boxes > 0 do {
+      let mut chosen := -1;
+      let mut count := -1;
+      let mut key := 16777216;
+      for j, box in boxes do {
+          let k := rgbKey (representative box);
+          if box.Count > count || (box.Count == count && k < key)
+            then do { chosen := j; count := box.Count; key := k } else ()
+      };
+      let c := representative boxes[chosen];
+      out := append out (ShadeFromRGB c.R c.G c.B);
+      let mut rest := make (Slice ColorBox) 0;
+      for j, box in boxes do { if j != chosen then do { rest := append rest box } else () };
+      boxes := rest
+    };
+    out
+  }
+}

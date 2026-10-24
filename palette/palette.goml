@@ -26,6 +26,7 @@ type Palette := {
   Name : String @[json "name"];
   Basis : String @[json "basis"];
   Primary : Slice Scale @[json "primary"];
+  Secondary : Slice Scale @[json "secondary,omitempty"];
   Neutrals : Slice Scale @[json "neutrals"];
   Supporting : Slice Scale @[json "supporting"]
 }
@@ -100,7 +101,9 @@ let ShiftScale (seed : Scale) (base : Shade) (name : String) : Scale := do {
     let h2 := normHue (sh.H + dh);
     let s2 := clampPct (sh.S * (1.0 + (ratio - 1.0) * w));
     let l2 := clampPct (sh.L + dl * w);
-    out := append out (MakeShade h2 s2 l2)
+    let shifted := MakeShade h2 s2 l2;
+    -- Hex is authoritative: rounded HSL must never alter a brand color.
+    out := append out (if i == a && base.Hex != "" then base else shifted)
   };
   Scale { Name = name, Shades = out }
 }
@@ -170,6 +173,7 @@ let Generate (base : Shade) : Palette := do {
     Name = primaryName + " " + strings.ToUpper base.Hex,
     Basis = fmt.Sprintf "Generated from %s using the Refactoring UI methodology (seed scale: %s)" (strings.ToUpper base.Hex) seed.Name,
     Primary = [primary],
+    Secondary = noScales (),
     Neutrals = [neutral],
     Supporting = supporting
   }
@@ -182,7 +186,21 @@ let FromCurated (id : Int) : Palette := do {
     Name = bp.Name,
     Basis = "Refactoring UI: Color Palettes v1.1.0, " + bp.Name + " (verbatim)",
     Primary = bp.Primary,
+    Secondary = noScales (),
     Neutrals = bp.Neutrals,
     Supporting = bp.Supporting
+  }
+}
+
+let DescSecondary : String := "A second brand color, with its own light and dark shades. Use it for brand highlights and categories while keeping your primary actions recognizable. The complementary accent and semantic colors retain their own roles."
+
+-- Adding a brand scale never changes the primary, neutrals, or accents.
+let WithSecondary (p : Palette) (base : Shade) : Palette := do {
+  let sc := ShiftScale (Nearest base (ColorSeeds ())) base (HueName base.H base.S);
+  let scales : Slice Scale := [sc];
+  { p with
+    Name = p.Name + " + " + base.Hex,
+    Basis = strings.ReplaceAll p.Basis " (verbatim)" " (customized)" + "; secondary brand color " + base.Hex,
+    Secondary = scales
   }
 }

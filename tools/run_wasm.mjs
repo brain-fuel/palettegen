@@ -9,7 +9,7 @@ process.on("uncaughtException", (e) => {
 const goroot = execSync("go env GOROOT").toString().trim();
 await import(goroot + "/lib/wasm/wasm_exec.js");
 const go = new Go();
-go.argv = ["palettegen-try", process.argv[3] ?? ""];
+go.argv = ["palettegen-try", process.argv[3] ?? "", "render-only"];
 const wasm = readFileSync(process.argv[2]);
 const { instance } = await WebAssembly.instantiate(wasm, go.importObject);
 await go.run(instance);

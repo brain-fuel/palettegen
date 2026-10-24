@@ -66,7 +66,17 @@ let MakeShade (h : Float64) (s : Float64) (l : Float64) : Shade :=
     L = math.Round l
   }
 
-let RGBOf (sh : Shade) : RGB := hslToRGB sh.H sh.S sh.L
+let RGBOf (sh : Shade) : RGB := do {
+  let raw := strings.TrimPrefix sh.Hex "#";
+  let n, err := strconv.ParseInt raw 16 32;
+  if len raw == 6 && err == nil then do {
+    let v := Int n;
+    RGB { R = v / 65536, G = (v / 256) % 256, B = v % 256 }
+  } else hslToRGB sh.H sh.S sh.L
+}
+
+let ShadeFromRGB (r : Int) (g : Int) (b : Int) : Shade :=
+  rgbToShade (fmt.Sprintf "#%02X%02X%02X" r g b) r g b
 
 -- Perceived brightness 0..255, the formula Refactoring UI cites:
 -- sqrt(0.299 R^2 + 0.587 G^2 + 0.114 B^2).
@@ -111,7 +121,7 @@ let expand3 (t : String) : String :=
 let ParseHex (raw : String) : Parsed := do {
   let t0 := strings.ToLower (strings.TrimPrefix (strings.TrimSpace raw) "#");
   let t := if len t0 == 3 then expand3 t0 else t0;
-  if len t != 6 then Bad else do {
+  if len t != 6 || strings.ContainsAny t "+-" then Bad else do {
     let n, err := strconv.ParseInt t 16 32;
     if err != nil then Bad else do {
       let v := Int n;

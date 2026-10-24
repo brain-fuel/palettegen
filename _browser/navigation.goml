@@ -1,0 +1,170 @@
+module main
+
+import "fmt"
+import "math"
+import "syscall/js"
+
+-- Navigation transforms the display only. The source canvas remains intact
+-- for exact pixel reads, the magnifier, and color extraction.
+let pictureZoom : Float64 := 1.0
+let pictureFit : Float64 := 1.0
+let pictureLeft : Float64 := 0.0
+let pictureTop : Float64 := 0.0
+let viewPointerA : Int := -1
+let viewPointerB : Int := -1
+let viewAX : Float64 := 0.0
+let viewAY : Float64 := 0.0
+let viewBX : Float64 := 0.0
+let viewBY : Float64 := 0.0
+let viewStartX : Float64 := 0.0
+let viewStartY : Float64 := 0.0
+let pictureMoved : Bool := false
+
+let viewWidth () : Float64 := (element "picture-viewport").Get "clientWidth" |> jsFloat
+let viewHeight () : Float64 := (element "picture-viewport").Get "clientHeight" |> jsFloat
+
+let boundOffset (offset : Float64) (size : Float64) (frame : Float64) : Float64 :=
+  if size <= frame then (frame - size) / 2.0 else math.Max (frame - size) (math.Min 0.0 offset)
+
+let paintPictureView () : Unit := do {
+  let canvas := element "picture";
+  let width := (canvas.Get "width" |> jsFloat) * pictureFit;
+  let height := (canvas.Get "height" |> jsFloat) * pictureFit;
+  pictureLeft := boundOffset pictureLeft (width * pictureZoom) (viewWidth ());
+  pictureTop := boundOffset pictureTop (height * pictureZoom) (viewHeight ());
+  let style := canvas.Get "style";
+  style.Set "width" (fmt.Sprintf "%.4fpx" width);
+  style.Set "height" (fmt.Sprintf "%.4fpx" height);
+  style.Set "transform" (fmt.Sprintf "translate(%.4fpx,%.4fpx) scale(%.6f)" pictureLeft pictureTop pictureZoom);
+  (element "picture-viewport").Call "setAttribute" "data-zoom" (fmt.Sprintf "%.4f" pictureZoom);
+  (element "picture-fit").Call "setAttribute" "aria-label" (fmt.Sprintf "Fit whole picture. Current zoom %.0f percent" (pictureZoom * 100.0));
+  (element "picture-zoom-out").Set "disabled" (pictureZoom <= 1.0);
+  (element "picture-zoom-in").Set "disabled" (pictureZoom >= 16.0);
+  positionMarker ()
+}
+
+let fitPicture () : Unit := do {
+  let canvas := element "picture";
+  pictureFit := math.Min 1.0 (math.Min (viewWidth () / (canvas.Get "width" |> jsFloat)) (viewHeight () / (canvas.Get "height" |> jsFloat)));
+  pictureZoom := 1.0;
+  pictureLeft := 0.0; pictureTop := 0.0;
+  viewPointerA := -1; viewPointerB := -1; pictureMoved := false;
+  paintPictureView ()
+}
+
+let zoomPictureAt (next : Float64) (x : Float64) (y : Float64) : Unit := do {
+  let zoom := math.Max 1.0 (math.Min 16.0 next);
+  pictureLeft := x - (x - pictureLeft) * zoom / pictureZoom;
+  pictureTop := y - (y - pictureTop) * zoom / pictureZoom;
+  pictureZoom := zoom;
+  paintPictureView ()
+}
+
+let zoomPictureIn (event : js.Value) : Any := do {
+  zoomPictureAt (pictureZoom * 1.5) (viewWidth () / 2.0) (viewHeight () / 2.0); nil
+}
+let zoomPictureOut (event : js.Value) : Any := do {
+  zoomPictureAt (pictureZoom / 1.5) (viewWidth () / 2.0) (viewHeight () / 2.0); nil
+}
+let resetPictureView (event : js.Value) : Any := do { fitPicture (); nil }
+
+let pictureViewStart (event : js.Value) : Any := do {
+  let pointer := event.Get "pointerId" |> jsInt;
+  let x := event.Get "clientX" |> jsFloat;
+  let y := event.Get "clientY" |> jsFloat;
+  if viewPointerA < 0 then do {
+    viewPointerA := pointer; viewAX := x; viewAY := y;
+    viewStartX := x; viewStartY := y; pictureMoved := false
+  } else if viewPointerB < 0 && pointer != viewPointerA then do {
+    viewPointerB := pointer; viewBX := x; viewBY := y;
+    pictureMoved := true
+  } else ();
+  if event.Get "isTrusted" |> jsBool then do {
+    (element "picture-viewport").Call "setPointerCapture" pointer; ()
+  } else ();
+  nil
+}
+
+let pointerDistance () : Float64 := math.Hypot (viewBX - viewAX) (viewBY - viewAY)
+
+let pictureViewMove (event : js.Value) : Any := do {
+  let pointer := event.Get "pointerId" |> jsInt;
+  if pointer != viewPointerA && pointer != viewPointerB then do { return nil } else ();
+  let oldDistance := pointerDistance ();
+  let oldX := (viewAX + viewBX) / 2.0;
+  let oldY := (viewAY + viewBY) / 2.0;
+  let previousX := viewAX;
+  let previousY := viewAY;
+  let x := event.Get "clientX" |> jsFloat;
+  let y := event.Get "clientY" |> jsFloat;
+  if pointer == viewPointerA then do { viewAX := x; viewAY := y }
+  else do { viewBX := x; viewBY := y };
+  if viewPointerB >= 0 then do {
+    let rect := (element "picture-viewport").Call "getBoundingClientRect";
+    let left := rect.Get "left" |> jsFloat;
+    let top := rect.Get "top" |> jsFloat;
+    let next := if oldDistance > 0.0 then pictureZoom * pointerDistance () / oldDistance else pictureZoom;
+    pictureLeft := pictureLeft + (viewAX + viewBX) / 2.0 - oldX;
+    pictureTop := pictureTop + (viewAY + viewBY) / 2.0 - oldY;
+    zoomPictureAt next ((viewAX + viewBX) / 2.0 - left) ((viewAY + viewBY) / 2.0 - top);
+    pictureMoved := true
+  } else do {
+    if math.Hypot (x - viewStartX) (y - viewStartY) > 6.0 then do { pictureMoved := true } else ();
+    if pictureMoved then do {
+      pictureLeft := pictureLeft + x - previousX;
+      pictureTop := pictureTop + y - previousY;
+      paintPictureView ()
+    } else ()
+  };
+  nil
+}
+
+let pictureViewEnd (event : js.Value) : Any := do {
+  let pointer := event.Get "pointerId" |> jsInt;
+  if (event.Get "type" |> jsString) == "pointercancel" then do { pictureMoved := true } else ();
+  if pointer == viewPointerA then do {
+    viewPointerA := viewPointerB; viewAX := viewBX; viewAY := viewBY; viewPointerB := -1
+  } else if pointer == viewPointerB then do { viewPointerB := -1 } else ();
+  let frame := element "picture-viewport";
+  if frame.Call "hasPointerCapture" pointer |> jsBool then do { frame.Call "releasePointerCapture" pointer; () } else ();
+  nil
+}
+
+let pictureWheel (event : js.Value) : Any := do {
+  let rect := (element "picture-viewport").Call "getBoundingClientRect";
+  let x := (event.Get "clientX" |> jsFloat) - (rect.Get "left" |> jsFloat);
+  let y := (event.Get "clientY" |> jsFloat) - (rect.Get "top" |> jsFloat);
+  if event.Get "ctrlKey" |> jsBool then do {
+    event.Call "preventDefault";
+    zoomPictureAt (pictureZoom * math.Exp (-(event.Get "deltaY" |> jsFloat) * 0.01)) x y
+  } else if pictureZoom > 1.0 then do {
+    event.Call "preventDefault";
+    pictureLeft := pictureLeft - (event.Get "deltaX" |> jsFloat);
+    pictureTop := pictureTop - (event.Get "deltaY" |> jsFloat);
+    paintPictureView ()
+  } else ();
+  nil
+}
+
+let pictureNavigationKey (event : js.Value) : Any := do {
+  let key := event.Get "key" |> jsString;
+  if key == "+" || key == "=" then do { event.Call "preventDefault"; zoomPictureIn event }
+  else if key == "-" then do { event.Call "preventDefault"; zoomPictureOut event }
+  else if key == "0" then do { event.Call "preventDefault"; fitPicture (); nil }
+  else if event.Get "shiftKey" |> jsBool then do {
+    if key == "ArrowLeft" || key == "ArrowRight" || key == "ArrowUp" || key == "ArrowDown" then do {
+      event.Call "preventDefault";
+      pictureLeft := pictureLeft + (if key == "ArrowLeft" then 34.0 else if key == "ArrowRight" then -34.0 else 0.0);
+      pictureTop := pictureTop + (if key == "ArrowUp" then 34.0 else if key == "ArrowDown" then -34.0 else 0.0);
+      paintPictureView ()
+    } else ();
+    nil
+  } else movePixel event false
+}
+
+let togglePictureSources (event : js.Value) : Any := do {
+  let opened := (element "picture-source-options").Get "hidden" |> jsBool;
+  show "picture-source-options" opened;
+  (element "change-picture").Call "setAttribute" "aria-expanded" (if opened then "true" else "false");
+  nil
+}

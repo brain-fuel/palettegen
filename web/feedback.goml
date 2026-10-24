@@ -1,0 +1,30 @@
+module web
+
+import "goforge.dev/palettegen/palette"
+
+-- Tone follows the message's purpose, independently of the chosen brand hue.
+-- Labels carry the same meaning for people who cannot distinguish the colors.
+let FeedbackHTML (tone : String) (message : String) : String := do {
+  let label := if tone == "success" then "Success"
+    else if tone == "warning" then "Needs attention"
+    else if tone == "error" then "Could not complete"
+    else if tone == "loading" then "Working"
+    else "Good to know";
+  if message == "" then "" else
+    "<span class=\"feedback-label\">" + label + "</span><span>" + escapeHTML message + "</span>"
+}
+
+let PairingTone (m : Model) : String := do {
+  let a := palette.ParseHex (PickerHex m);
+  let b := palette.ParseHex m.SecondaryHex;
+  if !(palette.ParsedOk b) then "neutral" else do {
+    let first := palette.ParsedShade a;
+    let second := palette.ParsedShade b;
+    if first.Hex == second.Hex || (first.S >= 15.0 && second.S >= 15.0 && palette.HueDistance first.H second.H <= 25.0)
+      then "warning" else "neutral"
+  }
+}
+
+let NoteHTML (m : Model) : String :=
+  if m.Note == "" then "" else
+    "<p class=\"feedback\" data-tone=\"error\">" + FeedbackHTML "error" m.Note + "</p>"

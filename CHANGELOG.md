@@ -1,0 +1,23 @@
+# Changelog
+
+## v0.3.0 — 2026-10-24
+
+- Add an optional secondary brand scale, independent of the complementary
+  accent. Preserve chosen hex values exactly in the interface and exports.
+- Pick colors from uploaded, dropped, pasted, or web-linked pictures. Preview
+  before assigning Primary/Secondary, then refine that selection live in an
+  interactive pixel grid. Zoom and pan without assigning another color.
+- Replace Generate with live palette updates, gesture undo/redo, and session
+  histories for palettes and explored colors.
+- Keep the compact picture workspace together at 375×548 and 320×568 CSS
+  pixels, with nearby Change/Remove actions and 44px targets.
+- Use Overpass, Atkinson Hyperlegible, and Atkinson Hyperlegible Mono in the
+  interface and PDF exports. Use semantic feedback and assignment confirmations.
+- Share goml palette/rendering code across the native server and browser Wasm
+  app. Embed browser assets and fonts in the installable server binary.
+
+Validation: deterministic generated-code/browser-asset checks, native property
+checks, race checks, vet for native and browser targets, and server/static
+acceptance checks in desktop Chromium and mobile WebKit. Browser checks cover
+preview safety, isolated refinement, zoom/pan, compact layouts, history,
+clipboard/CORS failures, retained state, and current JSON/PDF downloads.

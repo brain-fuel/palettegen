@@ -1,0 +1,672 @@
+module main
+
+-- Browser behavior is authored in goml. Only Go's runtime shim and the
+-- bootstrap are JavaScript. This target is built explicitly for js/wasm;
+-- the underscore directory keeps platform imports out of native ./... builds.
+
+import "fmt"
+import "math"
+import "net/url"
+import "os"
+import "strings"
+import "strconv"
+import "syscall/js"
+import "goforge.dev/palettegen/palette"
+import "goforge.dev/palettegen/web"
+
+let document := js.Undefined ()
+let current := web.ModelFromQuery "" false
+let callbacks := make (Slice js.Func) 0
+let sampleHex : String := ""
+let sampleX : Int := 0
+let sampleY : Int := 0
+let imageEpoch : Int := 0
+let emptyFunc := js.Func {}
+let noticeTimer := js.Undefined ()
+let noticeCallback := js.Func {}
+
+type PromiseCallbacks := { Good : js.Func; Bad : js.Func }
+
+let jsString (v : js.Value) : String := v.String ()
+let jsInt (v : js.Value) : Int := v.Int ()
+let jsFloat (v : js.Value) : Float64 := v.Float ()
+let jsBool (v : js.Value) : Bool := v.Bool ()
+
+let element (id : String) : js.Value := document.Call "getElementById" id
+let textAt (id : String) (value : String) : Unit := (element id).Set "textContent" value
+let valueAt (id : String) : String := (element id).Get "value" |> jsString
+let show (id : String) (visible : Bool) : Unit := (element id).Set "hidden" (!visible)
+
+let listen (node : js.Value) (event : String) (handle : js.Value -> Any) : Unit := do {
+  let callback := js.FuncOf (fun (this : js.Value) (args : Slice js.Value) : Any => handle args[0]);
+  callbacks := append callbacks callback;
+  node.Call "addEventListener" event callback;
+  ()
+}
+
+let settled (pair : PromiseCallbacks) (handle : js.Value -> Any) (value : js.Value) : Any := do {
+  defer pair.Good.Release ();
+  defer pair.Bad.Release ();
+  handle value;
+  nil
+}
+
+let promise (p : js.Value) (good : js.Value -> Any) (bad : js.Value -> Any) : Unit := do {
+  let pair := PromiseCallbacks { Good = emptyFunc, Bad = emptyFunc };
+  pair.Good := js.FuncOf (fun (this : js.Value) (args : Slice js.Value) : Any => settled pair good args[0]);
+  pair.Bad := js.FuncOf (fun (this : js.Value) (args : Slice js.Value) : Any => settled pair bad args[0]);
+  p.Call "then" pair.Good pair.Bad;
+  ()
+}
+
+let feedbackAt (id : String) (tone : String) (message : String) : Unit := do {
+  let node := element id;
+  node.Call "setAttribute" "data-tone" tone;
+  node.Set "innerHTML" (web.FeedbackHTML tone message);
+  ()
+}
+
+let status (tone : String) (message : String) : Unit := do {
+  feedbackAt "image-status" tone message;
+  let classes : String := if tone == "success" || tone == "neutral" then "field-help feedback sr-only" else "field-help feedback";
+  (element "image-status").Set "className" classes
+}
+
+let updatePairing () : Unit := do {
+  let q := make (url.Values);
+  q.Set "c" (valueAt "primary-picker");
+  q.Set "s" (valueAt "secondary-hex");
+  let m := web.ModelFromValues q current.Embed;
+  feedbackAt "pairing-note" (web.PairingTone m) (web.PairingGuidance m);
+  (element "curated-secondary").Set "value" (valueAt "secondary-hex");
+  show "remove-sample-secondary" (strings.TrimSpace (valueAt "secondary-hex") != "")
+}
+
+let setPrimary (hex : String) : Unit := do {
+  (element "primary-picker").Set "value" hex;
+  (element "primary-hex").Set "value" hex;
+  updatePairing ()
+}
+
+let setSecondary (hex : String) : Unit := do {
+  (element "secondary-picker").Set "value" hex;
+  (element "secondary-hex").Set "value" hex;
+  (element "secondary-controls").Set "open" true;
+  updatePairing ()
+}
+
+let canonicalURL (m : web.Model) : String :=
+  "?" + m.QS + (if m.Theme == "" then "" else "&t=" + m.Theme)
+
+let renderModel (m : web.Model) (push : Bool) : Unit := do {
+  current := m;
+  (element "palette-results").Set "innerHTML" (web.LiveResultHTML m);
+  (element "palette-theme").Set "textContent" (web.ThemeCSS m.Pal);
+  (element "theme-links").Set "innerHTML" (web.ThemeLinks m);
+  let root := document.Get "documentElement";
+  if m.Theme == "" then do { root.Call "removeAttribute" "data-theme"; () }
+    else do { root.Call "setAttribute" "data-theme" m.Theme; () };
+  (element "model-note").Set "innerHTML" (web.NoteHTML m);
+  setPrimary (web.PickerHex m);
+  (element "secondary-hex").Set "value" m.SecondaryHex;
+  (element "curated-id").Set "value" (if m.CuratedID > 0 then fmt.Sprintf "%d" m.CuratedID else "1");
+  if m.SecondaryHex != "" then setSecondary m.SecondaryHex else ();
+  updatePairing ();
+  let forms := document.Call "querySelectorAll" "input[name=t]";
+  let mut i := 0;
+  while i < forms.Length () do { (forms.Index i).Set "value" m.Theme; i := i + 1 };
+  -- Forms submitted without Wasm must also retain a newly selected theme.
+  let formIDs : Slice String := ["generate-form", "curated-form"];
+  for _, id in formIDs do {
+    let form := element id;
+    if (form.Call "querySelector" "input[name=t]").IsNull () then do {
+      let hidden := document.Call "createElement" "input";
+      hidden.Set "type" "hidden"; hidden.Set "name" "t"; hidden.Set "value" m.Theme;
+      form.Call "appendChild" hidden;
+      ()
+    } else ()
+  };
+  if push then do {
+    let history := (js.Global ()).Get "history";
+    history.Call "pushState" nil "" (canonicalURL m);
+    ()
+  } else ();
+  paintRole ();
+  textAt "result-status" ("Palette ready: " + m.Pal.Name)
+}
+
+let generate (event : js.Value) : Any := do {
+  event.Call "preventDefault";
+  scheduleLive (); flushLive (); commitPalette (); focusPalette ();
+  nil
+}
+
+let openCurated (event : js.Value) : Any := do {
+  event.Call "preventDefault";
+  let secondary := palette.ParseHex (valueAt "secondary-hex");
+  if valueAt "secondary-hex" != "" && !(palette.ParsedOk secondary) then do {
+    feedbackAt "pairing-note" "error" "Enter a valid secondary hex, or remove it before opening a book palette.";
+    (element "secondary-controls").Set "open" true
+  } else do {
+    let q := make (url.Values);
+    q.Set "p" (valueAt "curated-id"); q.Set "s" (valueAt "secondary-hex"); q.Set "t" current.Theme;
+    renderModel (web.ModelFromValues q current.Embed) false;
+    journalPalette (); commitPalette ()
+  };
+  nil
+}
+
+let selectColor (hex : String) : Unit := do {
+  sampleHex := hex;
+  textAt "sample-hex" hex;
+  journalColor hex;
+  if sampleRole != "" then do {
+    assignedSampleHex := hex;
+    if sampleRole == "secondary" then setSecondary hex else setPrimary hex;
+    scheduleLive ()
+  } else ();
+  sampleGuidance ();
+  let buttons := (element "image-suggestions").Call "querySelectorAll" "button";
+  let mut i := 0;
+  while i < buttons.Length () do {
+    let button := buttons.Index i;
+    let selected := (button.Call "getAttribute" "data-color").String () == hex;
+    button.Call "setAttribute" "aria-pressed" (if selected then "true" else "false");
+    i := i + 1
+  }
+}
+
+let bitmapReady (bitmap : js.Value) (epoch : Int) : Any := do {
+  if epoch != imageEpoch then do { bitmap.Call "close"; () } else do {
+    let width := bitmap.Get "width" |> jsFloat;
+    let height := bitmap.Get "height" |> jsFloat;
+    let ratio := math.Min 1.0 (2048.0 / math.Max width height);
+    let w := Int (math.Max 1.0 (math.Round (width * ratio)));
+    let h := Int (math.Max 1.0 (math.Round (height * ratio)));
+    let canvas := element "picture";
+    canvas.Set "width" w; canvas.Set "height" h;
+    let ctx := canvas.Call "getContext" "2d";
+    ctx.Call "drawImage" bitmap 0 0 w h;
+    bitmap.Call "close";
+    let analysis := document.Call "createElement" "canvas";
+    let scale := math.Min 1.0 (256.0 / math.Max (Float64 w) (Float64 h));
+    let aw := Int (math.Max 1.0 (math.Round (Float64 w * scale)));
+    let ah := Int (math.Max 1.0 (math.Round (Float64 h * scale)));
+    analysis.Set "width" aw; analysis.Set "height" ah;
+    let ac := analysis.Call "getContext" "2d";
+    ac.Set "imageSmoothingEnabled" false;
+    ac.Call "drawImage" canvas 0 0 aw ah;
+    let data := (ac.Call "getImageData" 0 0 aw ah).Get "data";
+    let bytes := make (Slice Byte) (aw * ah * 4);
+    js.CopyBytesToGo bytes data;
+    let colors := palette.ImageColors bytes;
+    (element "image-suggestions").Set "innerHTML" (suggestionsHTML colors bytes aw ah w h);
+    sampleHex := ""; sampleX := w / 2; sampleY := h / 2;
+    clearSampleAssignment (); hideSelectionNotice ();
+    textAt "sample-hex" "Choose a color";
+    zoomReady := false;
+    (element "magnifier").Call "setAttribute" "aria-disabled" "true";
+    textAt "zoom-help" "Tap the picture to see its pixels here.";
+    show "picture-marker" false;
+    let zoom := (element "magnifier").Call "getContext" "2d";
+    zoom.Call "clearRect" 0 0 132 132;
+    show "picture-workspace" true;
+    show "picture-placeholder" false;
+    show "picture" true;
+    show "choose-replacement" true;
+    show "picture-command-row" true;
+    show "picture-viewport" true; show "picture-zoom" true;
+    show "picture-source-options" false;
+    (element "change-picture").Call "setAttribute" "aria-expanded" "false";
+    ((element "image-panel").Get "classList").Call "add" "has-picture";
+    fitPicture ();
+    paintRole ();
+    status (if len colors == 0 then "warning" else "success") (if len colors == 0 then "This picture is fully transparent. Choose a picture with visible colors." else "Picture ready. Tap a spot or suggested color to preview.");
+    ()
+  };
+  nil
+}
+
+let decodeFailed (epoch : Int) (reason : js.Value) : Any := do {
+  if epoch == imageEpoch then status "error" "Could not open this picture. Try a PNG, JPEG, WebP, or another format supported by your browser." else ();
+  nil
+}
+
+let decodeBlob (blob : js.Value) (epoch : Int) : Unit := do {
+  if (blob.Get "size" |> jsInt) > 20 * 1024 * 1024 then
+    status "error" "That picture is larger than 20 MB. Choose a smaller picture."
+  else do {
+    let pending := (js.Global ()).Call "createImageBitmap" blob;
+    promise pending (fun (bitmap : js.Value) : Any => bitmapReady bitmap epoch) (fun (reason : js.Value) : Any => decodeFailed epoch reason)
+  }
+}
+
+let loadFile (file : js.Value) : Unit := do {
+  imageEpoch := imageEpoch + 1;
+  status "loading" "Opening your picture on this device...";
+  decodeBlob file imageEpoch
+}
+
+-- Clipboard access happens only on a paste gesture or explicit button press.
+-- Plain text is left to the browser, including pastes into color/URL fields.
+let pastedImage (event : js.Value) : Any := do {
+  let data := event.Get "clipboardData";
+  if data.IsNull () || data.IsUndefined () then () else do {
+    let files := data.Get "files";
+    let mut i := 0;
+    while i < files.Length () do {
+      let file := files.Index i;
+      if strings.HasPrefix (file.Get "type" |> jsString) "image/" then do {
+        event.Call "preventDefault";
+        (element "image-panel").Call "scrollIntoView";
+        loadFile file;
+        return nil
+      } else ();
+      i := i + 1
+    };
+    let items := data.Get "items";
+    i := 0;
+    while i < items.Length () do {
+      let item := items.Index i;
+      if (item.Get "kind" |> jsString) == "file" && strings.HasPrefix (item.Get "type" |> jsString) "image/" then do {
+        let file := item.Call "getAsFile";
+        if !(file.IsNull ()) then do {
+          event.Call "preventDefault";
+            (element "image-panel").Call "scrollIntoView";
+          loadFile file;
+          return nil
+        } else ()
+      } else ();
+      i := i + 1
+    }
+  };
+  nil
+}
+
+let clipboardFailed (epoch : Int) (reason : js.Value) : Any := do {
+  if epoch == imageEpoch then status "warning" "Clipboard access was blocked. Use your browser's Paste command or choose a picture from your device." else ();
+  nil
+}
+
+let clipboardImage (epoch : Int) (blob : js.Value) : Any := do {
+  if epoch == imageEpoch then decodeBlob blob epoch else ();
+  nil
+}
+
+let clipboardItems (epoch : Int) (items : js.Value) : Any := do {
+  if epoch != imageEpoch then () else do {
+    let mut i := 0;
+    while i < items.Length () do {
+      let item := items.Index i;
+      let types := item.Get "types";
+      let mut mime := "";
+      let mut j := 0;
+      while j < types.Length () do {
+        let candidate := types.Index j |> jsString;
+        if strings.HasPrefix candidate "image/" && (mime == "" || candidate == "image/png")
+          then do { mime := candidate } else ();
+        j := j + 1
+      };
+      if mime != "" then do {
+        let pending := item.Call "getType" mime;
+        promise pending (fun (blob : js.Value) : Any => clipboardImage epoch blob) (fun (reason : js.Value) : Any => clipboardFailed epoch reason);
+        return nil
+      } else ();
+      i := i + 1
+    };
+    status "neutral" "No image found on the clipboard. Copy a picture or screenshot, then paste it here."
+  };
+  nil
+}
+
+let readClipboard (event : js.Value) : Any := do {
+  let clipboard := ((js.Global ()).Get "navigator").Get "clipboard";
+  if clipboard.IsNull () || clipboard.IsUndefined () then
+    status "warning" "This browser cannot read the clipboard here. Use your browser's Paste command or choose a picture from your device."
+  else if (clipboard.Get "read").Type () != js.TypeFunction then
+    status "warning" "This browser cannot read clipboard images with this button. Use your browser's Paste command or choose a picture from your device."
+  else do {
+    imageEpoch := imageEpoch + 1;
+    let epoch := imageEpoch;
+    status "loading" "Reading the image from your clipboard...";
+    let pending := clipboard.Call "read";
+    promise pending (fun (items : js.Value) : Any => clipboardItems epoch items) (fun (reason : js.Value) : Any => clipboardFailed epoch reason)
+  };
+  nil
+}
+
+type ImageFetch := { Epoch : Int; Reader : js.Value; Chunks : js.Value;
+  Size : Int; Controller : js.Value; Timer : js.Value; TimerCallback : js.Func; Done : Bool }
+
+let finishFetch (task : Ptr ImageFetch) : Unit := do {
+  if !(task.Done) then do {
+    task.Done := true;
+    (js.Global ()).Call "clearTimeout" task.Timer;
+    task.TimerCallback.Release ();
+    ()
+  } else ()
+}
+
+let fetchFailed (task : Ptr ImageFetch) (reason : js.Value) : Any := do {
+  if !(task.Done) then do {
+    finishFetch task;
+    task.Chunks := js.Undefined ();
+    if task.Epoch == imageEpoch then status "error" "This website could not share its picture. Check the direct image URL, try another link, or upload a picture from your device." else ()
+  } else ();
+  nil
+}
+
+let readImageChunk (task : Ptr ImageFetch) : Unit := do {
+  let pending := task.Reader.Call "read";
+  promise pending (fun (part : js.Value) : Any => imageChunk task part) (fun (reason : js.Value) : Any => fetchFailed task reason)
+}
+
+let imageChunk (task : Ptr ImageFetch) (part : js.Value) : Any := do {
+  if task.Done then ()
+  else if task.Epoch != imageEpoch then do {
+    finishFetch task; task.Controller.Call "abort"; task.Chunks := js.Undefined (); ()
+  } else if (part.Get "done" |> jsBool) then do {
+    finishFetch task;
+    let blob := ((js.Global ()).Get "Blob").New task.Chunks;
+    task.Chunks := js.Undefined ();
+    decodeBlob blob task.Epoch
+  } else do {
+    let bytes := part.Get "value";
+    task.Size := task.Size + (bytes.Get "byteLength" |> jsInt);
+    if task.Size > 20 * 1024 * 1024 then do {
+      finishFetch task; task.Controller.Call "abort"; task.Chunks := js.Undefined ();
+      status "error" "That picture is larger than 20 MB. Choose a smaller picture."
+    } else do {
+      task.Chunks.Call "push" bytes;
+      readImageChunk task
+    }
+  };
+  nil
+}
+
+let imageResponse (task : Ptr ImageFetch) (response : js.Value) : Any := do {
+  if task.Done then ()
+  else if task.Epoch != imageEpoch then do { finishFetch task; task.Controller.Call "abort"; () }
+  else if !(response.Get "ok" |> jsBool) || (response.Get "body").IsNull () then do {
+    finishFetch task; task.Controller.Call "abort";
+    status "error" "The image link returned an error. Check the link or choose a picture from your device."
+  } else do {
+    task.Reader := (response.Get "body").Call "getReader";
+    readImageChunk task
+  };
+  nil
+}
+
+let fetchTimedOut (task : Ptr ImageFetch) : Any := do {
+  if !(task.Done) then do {
+    finishFetch task; task.Controller.Call "abort"; task.Chunks := js.Undefined ();
+    if task.Epoch == imageEpoch then status "error" "The image request took too long. Try again or choose a picture from your device." else ()
+  } else ();
+  nil
+}
+
+let fetchImage (address : String) (epoch : Int) : Unit := do {
+  let task := ImageFetch { Epoch = epoch, Reader = js.Undefined (),
+    Chunks = ((js.Global ()).Get "Array").New (), Size = 0,
+    Controller = ((js.Global ()).Get "AbortController").New (),
+    Timer = js.Undefined (), TimerCallback = emptyFunc, Done = false };
+  let handle := &task;
+  task.TimerCallback := js.FuncOf (fun (this : js.Value) (args : Slice js.Value) : Any => fetchTimedOut handle);
+  task.Timer := (js.Global ()).Call "setTimeout" task.TimerCallback 20000;
+  let options := ((js.Global ()).Get "Object").New ();
+  options.Set "credentials" "omit"; options.Set "mode" "cors"; options.Set "referrerPolicy" "no-referrer";
+  options.Set "signal" (task.Controller.Get "signal");
+  let pending := (js.Global ()).Call "fetch" address options;
+  promise pending (fun (response : js.Value) : Any => imageResponse handle response) (fun (reason : js.Value) : Any => fetchFailed handle reason)
+}
+
+let imageURLSubmit (event : js.Value) : Any := do {
+  event.Call "preventDefault";
+  let raw := strings.TrimSpace (valueAt "image-url");
+  let u, err := url.Parse raw;
+  if err != nil then status "error" "Enter a direct HTTPS image URL."
+  else if u.Scheme != "https" || u.Host == "" || u.User != nil then status "error" "Use a direct HTTPS image URL without a username or password."
+  else do {
+    imageEpoch := imageEpoch + 1;
+    status "loading" "Loading the picture...";
+    fetchImage raw imageEpoch
+  };
+  nil
+}
+
+let removePicture () : Unit := do {
+  imageEpoch := imageEpoch + 1;
+  sampleHex := "";
+  clearSampleAssignment (); hideSelectionNotice (); paintRole ();
+  (element "picture").Set "width" 1;
+  (element "picture").Set "height" 1;
+  (element "image-file").Set "value" "";
+  (element "image-suggestions").Set "innerHTML" "";
+  show "picture-workspace" false;
+  show "picture" false;
+  show "picture-marker" false;
+  show "picture-placeholder" true;
+  show "choose-replacement" false;
+  show "picture-command-row" false;
+  show "picture-viewport" false; show "picture-zoom" false;
+  show "picture-source-options" true;
+  ((element "image-panel").Get "classList").Call "remove" "has-picture";
+  zoomReady := false;
+  status "neutral" "Picture removed. Your brand colors are kept."
+}
+
+let documentClick (event : js.Value) : Any := do {
+  let target := event.Get "target";
+  if (target.Get "nodeType" |> jsInt) != 1 then () else do {
+    let download := target.Call "closest" "#palette-results .downloads a";
+    let oldPalette := target.Call "closest" "button[data-palette-key]";
+    let oldColor := target.Call "closest" "button[data-history-color]";
+    let theme := target.Call "closest" "#theme-links a";
+    if current.Embed && !(download.IsNull ()) then do { event.Call "preventDefault"; staticDownload download }
+    else if !(oldPalette.IsNull ()) then do {
+      let key := oldPalette.Call "getAttribute" "data-palette-key" |> jsString;
+      restorePalette key; commitPalette ()
+    } else if !(oldColor.IsNull ()) then do {
+      let hex := oldColor.Call "getAttribute" "data-history-color" |> jsString;
+      applySample hex; flushLive (); commitPalette ();
+      selectionNotice (if activeRole == "secondary" then "Secondary" else "Primary") hex;
+      status "success" "Color restored from this session. Your palette is updated."
+    } else if !(theme.IsNull ()) then do {
+      event.Call "preventDefault";
+      flushLive (); commitPalette ();
+      let query := theme.Call "getAttribute" "href" |> jsString;
+      let firstRaw := valueAt "primary-hex";
+      let secondRaw := valueAt "secondary-hex";
+      renderModel (web.ModelFromQuery query current.Embed) true;
+      (element "primary-hex").Set "value" firstRaw;
+      (element "secondary-hex").Set "value" secondRaw;
+      updatePairing (); paintRole ()
+    } else do {
+      let suggestion := target.Call "closest" "button[data-color]";
+      if !(suggestion.IsNull ()) then do {
+        let x, errX := strconv.Atoi (suggestion.Call "getAttribute" "data-x" |> jsString);
+        let y, errY := strconv.Atoi (suggestion.Call "getAttribute" "data-y" |> jsString);
+        if errX == nil && errY == nil then do { samplePixel x y; saveSession () } else ()
+      } else ()
+    }
+  };
+  nil
+}
+
+let primaryPickerChanged (event : js.Value) : Any := do {
+  activeRole := "primary"; setPrimary (valueAt "primary-picker"); journalColor (valueAt "primary-picker"); paintRole (); scheduleLive (); nil
+}
+let secondaryPickerChanged (event : js.Value) : Any := do {
+  activeRole := "secondary"; setSecondary (valueAt "secondary-picker"); journalColor (valueAt "secondary-picker"); paintRole (); scheduleLive (); nil
+}
+
+let primaryHexChanged (event : js.Value) : Any := do {
+  let parsed := palette.ParseHex (valueAt "primary-hex");
+  if palette.ParsedOk parsed then do {
+    (element "primary-picker").Set "value" (palette.ParsedShade parsed).Hex;
+    journalColor (palette.ParsedShade parsed).Hex;
+    updatePairing (); scheduleLive ()
+  } else ();
+  nil
+}
+
+let secondaryHexChanged (event : js.Value) : Any := do {
+  let parsed := palette.ParseHex (valueAt "secondary-hex");
+  if palette.ParsedOk parsed then do {
+    (element "secondary-picker").Set "value" (palette.ParsedShade parsed).Hex;
+    journalColor (palette.ParsedShade parsed).Hex
+  } else ();
+  updatePairing (); scheduleLive ();
+  nil
+}
+
+let clearSecondary (event : js.Value) : Any := do {
+  (element "secondary-hex").Set "value" "";
+  (element "secondary-controls").Set "open" false;
+  updatePairing (); scheduleLive (); flushLive (); commitPalette ();
+  if !((element "picture-workspace").Get "hidden" |> jsBool) then
+    status "success" "Secondary removed. Your palette is updated; continue sampling or view it." else ();
+  nil
+}
+
+let fileChanged (event : js.Value) : Any := do {
+  let files := (element "image-file").Get "files";
+  if files.Length () > 0 then loadFile (files.Index 0) else ();
+  nil
+}
+
+let dragOver (event : js.Value) : Any := do {
+  event.Call "preventDefault";
+  ((element "drop-zone").Get "classList").Call "add" "dragging";
+  nil
+}
+let dragLeave (event : js.Value) : Any := do {
+  ((element "drop-zone").Get "classList").Call "remove" "dragging";
+  nil
+}
+let dropFile (event : js.Value) : Any := do {
+  event.Call "preventDefault";
+  ((element "drop-zone").Get "classList").Call "remove" "dragging";
+  let files := (event.Get "dataTransfer").Get "files";
+  if files.Length () > 0 then loadFile (files.Index 0) else status "warning" "Drop an image file here, or use the image URL field.";
+  nil
+}
+
+let dismissNotice (this : js.Value) (args : Slice js.Value) : Any := do {
+  show "selection-notice" false;
+  noticeTimer := js.Undefined ();
+  nil
+}
+
+let selectionNotice (role : String) (hex : String) : Unit := do {
+  (js.Global ()).Call "clearTimeout" noticeTimer;
+  (element "selection-notice").Set "innerHTML" ("<span class=\"notice-swatch\" style=\"background:" + hex + "\"></span><span><strong>" + role + "</strong> set to <code>" + hex + "</code></span>");
+  show "selection-notice" true;
+  textAt "selection-announcement" (role + " set to " + hex);
+  noticeTimer := (js.Global ()).Call "setTimeout" noticeCallback 4000
+}
+
+let assignPrimary (event : js.Value) : Any := do {
+  assignSample "primary";
+  nil
+}
+let assignSecondary (event : js.Value) : Any := do {
+  assignSample "secondary";
+  nil
+}
+let clearPicture (event : js.Value) : Any := do { removePicture (); nil }
+let chooseReplacement (event : js.Value) : Any := do { (element "image-file").Call "click"; nil }
+let resized (event : js.Value) : Any := do {
+  if !((element "picture").Get "hidden" |> jsBool) then fitPicture () else ();
+  nil
+}
+let backOrForward (event : js.Value) : Any := do {
+  livePending := false;
+  let search := ((js.Global ()).Get "location").Get "search" |> jsString;
+  renderModel (web.ModelFromQuery search current.Embed) false;
+  navigatedPalette ();
+  nil
+}
+
+let mount () : Unit := do {
+  noticeCallback := js.FuncOf dismissNotice;
+  liveCallback := js.FuncOf liveFrame;
+  (element "primary-hex").Set "value" (web.PickerHex current);
+  show "image-tools" true; show "image-availability" false; show "clear-secondary" true; show "secondary-picker-field" true;
+  listen (element "generate-form") "submit" generate;
+  listen (element "curated-form") "submit" openCurated;
+  listen (element "curated-id") "change" openCurated;
+  listen (element "image-url-form") "submit" imageURLSubmit;
+  listen document "click" documentClick;
+  listen document "paste" pastedImage;
+  listen (element "paste-picture") "click" readClipboard;
+  listen (element "primary-picker") "input" primaryPickerChanged;
+  listen (element "secondary-picker") "input" secondaryPickerChanged;
+  listen (element "primary-hex") "input" primaryHexChanged;
+  listen (element "secondary-hex") "input" secondaryHexChanged;
+  listen (element "clear-secondary") "click" clearSecondary;
+  listen (element "remove-sample-secondary") "click" clearSecondary;
+  let primaryIDs : Slice String := ["primary-picker", "primary-hex"];
+  let secondaryIDs : Slice String := ["secondary-picker", "secondary-hex"];
+  for _, id in primaryIDs do { listen (element id) "focus" primaryFocused; listen (element id) "change" fieldCommitted };
+  for _, id in secondaryIDs do { listen (element id) "focus" secondaryFocused; listen (element id) "change" fieldCommitted };
+  listen (element "undo-palette") "click" undoPalette;
+  listen (element "redo-palette") "click" redoPalette;
+  listen (element "open-history") "click" toggleHistory;
+  listen (element "close-history") "click" closeHistory;
+  listen (element "view-palette") "click" viewPalette;
+  listen (element "history-role") "change" historyRoleChanged;
+  listen (js.Global ()) "beforeunload" beforeLeaving;
+  listen (element "image-file") "change" fileChanged;
+  listen (element "drop-zone") "dragover" dragOver;
+  listen (element "drop-zone") "dragleave" dragLeave;
+  listen (element "drop-zone") "drop" dropFile;
+  listen (element "picture-viewport") "click" pictureClick;
+  listen (element "picture") "keydown" pictureNavigationKey;
+  listen (element "picture-viewport") "pointerdown" pictureViewStart;
+  listen (element "picture-viewport") "pointermove" pictureViewMove;
+  listen (element "picture-viewport") "pointerup" pictureViewEnd;
+  listen (element "picture-viewport") "pointercancel" pictureViewEnd;
+  listen (element "picture-viewport") "lostpointercapture" pictureViewEnd;
+  listen (element "picture-viewport") "wheel" pictureWheel;
+  listen (element "picture-zoom-in") "click" zoomPictureIn;
+  listen (element "picture-zoom-out") "click" zoomPictureOut;
+  listen (element "picture-fit") "click" resetPictureView;
+  listen (element "change-picture") "click" togglePictureSources;
+  listen (element "magnifier") "click" magnifierClick;
+  listen (element "magnifier") "keydown" magnifierKey;
+  listen (element "magnifier") "pointerdown" scrubStart;
+  listen (element "magnifier") "pointermove" scrubMove;
+  listen (element "magnifier") "pointerup" scrubEnd;
+  listen (element "magnifier") "pointercancel" scrubEnd;
+  listen (element "magnifier") "lostpointercapture" scrubEnd;
+  listen (element "pick-primary") "click" assignPrimary;
+  listen (element "pick-secondary") "click" assignSecondary;
+  listen (element "clear-picture") "click" clearPicture;
+  listen (element "choose-replacement") "click" chooseReplacement;
+  listen (js.Global ()) "resize" resized;
+  listen (js.Global ()) "popstate" backOrForward;
+  show "editor-history-bar" true;
+  show "manual-apply" false; show "curated-apply" false;
+  loadHistory (len os.Args > 1 && os.Args[1] != "");
+  updatePairing (); paintRole ()
+}
+
+let main () : Unit := do {
+  let query := if len os.Args > 1 then os.Args[1] else "";
+  let mode := if len os.Args > 2 then os.Args[2] else "static";
+  current := web.ModelFromQuery query (mode != "enhance");
+  if mode == "render-only" then do { fmt.Print (web.RenderPage current) } else do {
+    document := (js.Global ()).Get "document";
+    if mode != "enhance" then do {
+      (document.Get "head").Set "innerHTML" (web.PageHead current);
+      (document.Get "body").Set "innerHTML" (web.PageBody current)
+    } else ();
+    let root := document.Get "documentElement";
+    if current.Theme != "" then do { root.Call "setAttribute" "data-theme" current.Theme; () } else ();
+    mount ();
+    let done := make (Chan Bool);
+    select with
+    | _ <- recv done => ()
+  }
+}

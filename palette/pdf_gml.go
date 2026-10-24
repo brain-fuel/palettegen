@@ -41,6 +41,9 @@ func allScales(p Palette) []Scale {
 	for _, sc := range p.Primary {
 		out = append(out, sc)
 	}
+	for _, sc := range p.Secondary {
+		out = append(out, sc)
+	}
 	for _, sc := range p.Neutrals {
 		out = append(out, sc)
 	}
@@ -61,15 +64,17 @@ func coverPage(pdf *fpdf.Fpdf, p Palette) {
 	pdf.SetFillColor(bg.R, bg.G, bg.B)
 	pdf.Rect(0.0, 0.0, pageW, pageH, "F")
 	pdf.SetTextColor(fg.R, fg.G, fg.B)
-	pdf.SetFont("Helvetica", "", 12.0)
+	pdf.SetFont("Atkinson", "", 12.0)
 	pdf.Text(marginX, 40.0, "UI Color Palette")
-	pdf.SetFont("Helvetica", "B", 34.0)
-	pdf.Text(marginX, 56.0, p.Name)
+	pdf.SetFont("Overpass", "", 28.0)
+	pdf.SetXY(marginX, 46.0)
+	pdf.MultiCell(pageW-2.0*marginX, 12.0, p.Name, "", "L", false)
 	faded := mixInk(fg, bg, 0.35)
-	pdf.SetFont("Helvetica", "", 10.0)
+	pdf.SetFont("Atkinson", "", 10.0)
 	pdf.SetTextColor(faded.R, faded.G, faded.B)
-	pdf.Text(marginX, 66.0, p.Basis)
-	pdf.Text(marginX, 72.0, "Generated "+time.Now().Format("2 January 2006")+" - after Refactoring UI: Color Palettes (Wathan & Schoger)")
+	pdf.SetXY(marginX, 76.0)
+	pdf.MultiCell(pageW-2.0*marginX, 5.0, p.Basis, "", "L", false)
+	pdf.Text(marginX, 98.0, "Generated "+time.Now().Format("2 January 2006")+" - after Refactoring UI: Color Palettes (Wathan & Schoger)")
 	scales := allScales(p)
 	if len(scales) == 0 {
 		return
@@ -93,7 +98,7 @@ func coverPage(pdf *fpdf.Fpdf, p Palette) {
 
 func scalePage(pdf *fpdf.Fpdf, p Palette, sec Section, idx int, count int, sc Scale) {
 	pdf.AddPage()
-	pdf.SetFont("Helvetica", "", 9.0)
+	pdf.SetFont("Atkinson", "", 9.0)
 	pdf.SetTextColor(inkMid.R, inkMid.G, inkMid.B)
 	pdf.Text(marginX, 18.0, fmt.Sprintf("%s  -  UI Color Palette", p.Name))
 	var __gp_v0 string
@@ -103,14 +108,14 @@ func scalePage(pdf *fpdf.Fpdf, p Palette, sec Section, idx int, count int, sc Sc
 		__gp_v0 = sec.Title
 	}
 	title := __gp_v0
-	pdf.SetFont("Helvetica", "B", 24.0)
+	pdf.SetFont("Overpass", "", 24.0)
 	pdf.SetTextColor(inkDark.R, inkDark.G, inkDark.B)
 	pdf.Text(marginX, 34.0, title)
-	pdf.SetFont("Helvetica", "", 10.5)
+	pdf.SetFont("Atkinson", "", 10.5)
 	pdf.SetTextColor(inkMid.R, inkMid.G, inkMid.B)
 	pdf.SetXY(marginX, 40.0)
 	pdf.MultiCell(175.0, 5.2, sec.Desc, "", "L", false)
-	pdf.SetFont("Helvetica", "B", 15.0)
+	pdf.SetFont("Overpass", "", 15.0)
 	pdf.SetTextColor(inkDark.R, inkDark.G, inkDark.B)
 	nameW := pdf.GetStringWidth(sc.Name)
 	pdf.Text(pageW-marginX-nameW, 34.0, sc.Name)
@@ -135,13 +140,13 @@ func scalePage(pdf *fpdf.Fpdf, p Palette, sec Section, idx int, count int, sc Sc
 		ink := __gp_v1
 		pdf.SetTextColor(ink.R, ink.G, ink.B)
 		cy := y + cellH/2.0 + 1.6
-		pdf.SetFont("Helvetica", "", 10.0)
+		pdf.SetFont("AtkinsonMono", "", 10.0)
 		pdf.Text(x+7.0, cy, fmt.Sprintf("hsl(%d, %d%%, %d%%)", int(sh.H), int(sh.S), int(sh.L)))
-		pdf.SetFont("Courier", "B", 11.0)
+		pdf.SetFont("AtkinsonMono", "B", 11.0)
 		hexW := pdf.GetStringWidth(sh.Hex)
 		pdf.Text(x+colW-7.0-hexW, cy, sh.Hex)
 	}
-	pdf.SetFont("Helvetica", "", 8.0)
+	pdf.SetFont("Atkinson", "", 8.0)
 	pdf.SetTextColor(inkMid.R, inkMid.G, inkMid.B)
 	pdf.Text(marginX, pageH-12.0, "Shades run darkest (900) to lightest (50). Method: Refactoring UI, chapter on building color palettes.")
 }
@@ -149,10 +154,15 @@ func scalePage(pdf *fpdf.Fpdf, p Palette, sec Section, idx int, count int, sc Sc
 // WritePDF renders the palette to w. Returns nil on success.
 func WritePDF(w io.Writer, p Palette) error {
 	pdf := fpdf.New("L", "mm", "A4", "")
+	pdf.AddUTF8FontFromBytes("Overpass", "", pdfOverpass)
+	pdf.AddUTF8FontFromBytes("Atkinson", "", pdfAtkinson)
+	pdf.AddUTF8FontFromBytes("Atkinson", "B", pdfAtkinsonBold)
+	pdf.AddUTF8FontFromBytes("AtkinsonMono", "", pdfMono)
+	pdf.AddUTF8FontFromBytes("AtkinsonMono", "B", pdfMonoBold)
 	pdf.SetTitle(p.Name+" - UI Color Palette", true)
 	pdf.SetAutoPageBreak(false, 0.0)
 	coverPage(pdf, p)
-	sections := []Section{Section{Title: "Primary", Desc: DescPrimary, Scales: p.Primary}, Section{Title: "Neutrals", Desc: DescNeutrals, Scales: p.Neutrals}, Section{Title: "Supporting", Desc: DescSupporting, Scales: p.Supporting}}
+	sections := []Section{Section{Title: "Primary", Desc: DescPrimary, Scales: p.Primary}, Section{Title: "Secondary", Desc: DescSecondary, Scales: p.Secondary}, Section{Title: "Neutrals", Desc: DescNeutrals, Scales: p.Neutrals}, Section{Title: "Supporting", Desc: DescSupporting, Scales: p.Supporting}}
 	for _, sec := range sections {
 		for i, sc := range sec.Scales {
 			scalePage(pdf, p, sec, i, len(sec.Scales), sc)

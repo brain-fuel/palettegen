@@ -28,6 +28,10 @@ var atkinson700 = decodeFont(atkinson700B64)
 
 var atkinson400i = decodeFont(atkinson400iB64)
 
+var atkinsonMono400 = decodeFont(atkinsonMono400B64)
+
+var atkinsonMono700 = decodeFont(atkinsonMono700B64)
+
 // FontFor maps a request path to font bytes; empty means not found.
 func FontFor(p string) []byte {
 	if p == "/fonts/overpass-700.woff2" {
@@ -41,6 +45,12 @@ func FontFor(p string) []byte {
 	}
 	if p == "/fonts/atkinson-400-italic.woff2" {
 		return atkinson400i
+	}
+	if p == "/fonts/atkinson-mono-400.woff2" {
+		return atkinsonMono400
+	}
+	if p == "/fonts/atkinson-mono-700.woff2" {
+		return atkinsonMono700
 	}
 	return noFontBytes()
 }
