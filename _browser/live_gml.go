@@ -24,6 +24,8 @@ var liveCallback = js.Func{}
 
 var previewOpen bool = false
 
+var secondaryRemovalPending bool = false
+
 func paintPreviewState() {
 	element("palette-preview").Get("classList").Call("toggle", "is-open", previewOpen)
 	var __gp_v0 any
@@ -330,6 +332,40 @@ func secondarySummaryClicked(event js.Value) any {
 func fieldCommitted(event js.Value) any {
 	flushLive()
 	commitPalette()
+	id := jsString(event.Get("target").Get("id"))
+	var __gp_v12 string
+	if strings.HasPrefix(id, "secondary-") {
+		__gp_v12 = "secondary"
+	} else {
+		__gp_v12 = "primary"
+	}
+	role := __gp_v12
+	hex := roleHex(role)
+	var __gp_v13 string
+	if role == "secondary" {
+		__gp_v13 = current.SecondaryHex
+	} else {
+		__gp_v13 = web.PickerHex(current)
+	}
+	applied := normalizedHex(__gp_v13)
+	if role == "secondary" && hex == "" && secondaryRemovalPending && applied == "" {
+		secondaryRemovedNotice()
+	} else {
+		if hex != "" && hex == applied {
+			var __gp_v14 string
+			if role == "secondary" {
+				__gp_v14 = "Secondary"
+			} else {
+				__gp_v14 = "Primary"
+			}
+			selectionNotice(__gp_v14, hex)
+		} else {
+			hideSelectionNotice()
+		}
+	}
+	if role == "secondary" {
+		secondaryRemovalPending = false
+	}
 	return nil
 }
 
@@ -404,12 +440,12 @@ func staticDownload(link js.Value) {
 	isPDF := jsBool(link.Get("classList").Call("contains", "pdf"))
 	anchor := document.Call("createElement", "a")
 	anchor.Set("href", web.ExportDataURL(current, isPDF))
-	var __gp_v12 string
+	var __gp_v15 string
 	if isPDF {
-		__gp_v12 = ".pdf"
+		__gp_v15 = ".pdf"
 	} else {
-		__gp_v12 = ".json"
+		__gp_v15 = ".json"
 	}
-	anchor.Set("download", web.FileStem(current)+__gp_v12)
+	anchor.Set("download", web.FileStem(current)+__gp_v15)
 	anchor.Call("click")
 }

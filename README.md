@@ -119,9 +119,12 @@ retains up to 100 undo states, 150 unique palettes, and 256 unique colors in
 session storage, including across reloads when storage is available. Images
 are not stored. See [UX_CHOICES.md](UX_CHOICES.md) for the decisions and rationale.
 
-Assigning a primary or secondary shows its role, swatch, and hex in a green
+Assigning a primary or secondary, including completed manual hex/picker edits,
+shows its role, swatch, and hex in a green
 confirmation for four seconds. The input retains the selection afterward;
-screen readers receive the same confirmation. Pairing cautions are amber,
+**Secondary color removed** uses the same four-second confirmation after a
+removal, including clearing and committing the secondary hex. Screen readers
+receive the same messages. Pairing cautions are amber,
 errors are red, successful operations are green, and loading/neutral guidance
 has a quieter treatment, with text labels as well as color.
 

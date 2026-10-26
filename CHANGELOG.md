@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.2 — 2026-10-26
+
+- Confirm successful Secondary removal with a four-second notification from
+  every removal control and completed empty-secondary hex edit.
+
+- Confirm every completed valid Primary/Secondary hex or picker edit, including
+  repeated changes after the previous notification expires. Keep unfinished,
+  invalid, or unapplied edits silent, and clear stale notices on recovery/removal.
+
 ## v0.5.1 — 2026-10-26
 
 - Make Add a secondary color immediately apply the displayed picker color,

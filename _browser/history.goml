@@ -113,6 +113,8 @@ let commitPalette () : Unit := do {
 }
 
 let restorePalette (key : String) : Unit := do {
+  hideSelectionNotice ();
+  secondaryRemovalPending := false;
   let m := web.ModelFromQuery (key + (if current.Theme == "" then "" else "&t=" + current.Theme)) current.Embed;
   renderModel m false;
   ((js.Global ()).Get "history").Call "replaceState" nil "" (canonicalURL current);

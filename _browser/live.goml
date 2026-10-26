@@ -13,6 +13,7 @@ let assignedSampleHex : String := ""
 let livePending : Bool := false
 let liveCallback := js.Func {}
 let previewOpen : Bool := false
+let secondaryRemovalPending : Bool := false
 
 let paintPreviewState () : Unit := do {
   ((element "palette-preview").Get "classList").Call "toggle" "is-open" previewOpen;
@@ -194,7 +195,19 @@ let secondarySummaryClicked (event : js.Value) : Any := do {
   nil
 }
 
-let fieldCommitted (event : js.Value) : Any := do { flushLive (); commitPalette (); nil }
+let fieldCommitted (event : js.Value) : Any := do {
+  flushLive (); commitPalette ();
+  let id := (event.Get "target").Get "id" |> jsString;
+  let role := if strings.HasPrefix id "secondary-" then "secondary" else "primary";
+  let hex := roleHex role;
+  let applied := normalizedHex (if role == "secondary" then current.SecondaryHex else web.PickerHex current);
+  if role == "secondary" && hex == "" && secondaryRemovalPending && applied == "" then secondaryRemovedNotice ()
+  else if hex != "" && hex == applied then
+    selectionNotice (if role == "secondary" then "Secondary" else "Primary") hex
+  else hideSelectionNotice ();
+  if role == "secondary" then do { secondaryRemovalPending := false } else ();
+  nil
+}
 let primaryFocused (event : js.Value) : Any := do { activeRole := "primary"; paintRole (); nil }
 let secondaryFocused (event : js.Value) : Any := do { activeRole := "secondary"; paintRole (); nil }
 let historyRoleChanged (event : js.Value) : Any := do { activeRole := valueAt "history-role"; paintRole (); saveSession (); nil }

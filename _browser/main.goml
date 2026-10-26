@@ -90,6 +90,7 @@ let setPrimary (hex : String) : Unit := do {
 }
 
 let setSecondary (hex : String) : Unit := do {
+  secondaryRemovalPending := false;
   (element "secondary-picker").Set "value" hex;
   (element "secondary-hex").Set "value" hex;
   (element "secondary-controls").Set "open" true;
@@ -504,13 +505,16 @@ let documentClick (event : js.Value) : Any := do {
 }
 
 let primaryPickerChanged (event : js.Value) : Any := do {
+  hideSelectionNotice ();
   activeRole := "primary"; setPrimary (valueAt "primary-picker"); journalColor (valueAt "primary-picker"); paintRole (); scheduleLive (); nil
 }
 let secondaryPickerChanged (event : js.Value) : Any := do {
+  hideSelectionNotice ();
   activeRole := "secondary"; setSecondary (valueAt "secondary-picker"); journalColor (valueAt "secondary-picker"); paintRole (); scheduleLive (); nil
 }
 
 let primaryHexChanged (event : js.Value) : Any := do {
+  hideSelectionNotice ();
   let parsed := palette.ParseHex (valueAt "primary-hex");
   if palette.ParsedOk parsed then do {
     (element "primary-picker").Set "value" (palette.ParsedShade parsed).Hex;
@@ -521,6 +525,10 @@ let primaryHexChanged (event : js.Value) : Any := do {
 }
 
 let secondaryHexChanged (event : js.Value) : Any := do {
+  hideSelectionNotice ();
+  if strings.TrimSpace (valueAt "secondary-hex") == "" then do {
+    if current.SecondaryHex != "" then do { secondaryRemovalPending := true } else ()
+  } else do { secondaryRemovalPending := false };
   let parsed := palette.ParseHex (valueAt "secondary-hex");
   if palette.ParsedOk parsed then do {
     (element "secondary-picker").Set "value" (palette.ParsedShade parsed).Hex;
@@ -531,11 +539,13 @@ let secondaryHexChanged (event : js.Value) : Any := do {
 }
 
 let clearSecondary (event : js.Value) : Any := do {
+  let hadSecondary := current.SecondaryHex != "";
+  secondaryRemovalPending := false;
+  hideSelectionNotice ();
   (element "secondary-hex").Set "value" "";
   (element "secondary-controls").Set "open" false;
   updatePairing (); scheduleLive (); flushLive (); commitPalette ();
-  if !((element "picture-workspace").Get "hidden" |> jsBool) then
-    status "success" "Secondary removed. Your palette is updated; continue sampling or view it." else ();
+  if hadSecondary && current.SecondaryHex == "" then secondaryRemovedNotice () else ();
   nil
 }
 
@@ -574,13 +584,19 @@ let dismissNotice (this : js.Value) (args : Slice js.Value) : Any := do {
   nil
 }
 
-let selectionNotice (role : String) (hex : String) : Unit := do {
+let colorNotice (markup : String) (announcement : String) : Unit := do {
   (js.Global ()).Call "clearTimeout" noticeTimer;
-  (element "selection-notice").Set "innerHTML" ("<span class=\"notice-swatch\" style=\"background:" + hex + "\"></span><span><strong>" + role + "</strong> set to <code>" + hex + "</code></span>");
+  (element "selection-notice").Set "innerHTML" markup;
   show "selection-notice" true;
-  textAt "selection-announcement" (role + " set to " + hex);
+  textAt "selection-announcement" announcement;
   noticeTimer := (js.Global ()).Call "setTimeout" noticeCallback 4000
 }
+
+let selectionNotice (role : String) (hex : String) : Unit :=
+  colorNotice ("<span class=\"notice-swatch\" style=\"background:" + hex + "\"></span><span><strong>" + role + "</strong> set to <code>" + hex + "</code></span>") (role + " set to " + hex)
+
+let secondaryRemovedNotice () : Unit :=
+  colorNotice "<span><strong>Secondary color</strong> removed</span>" "Secondary color removed"
 
 let assignPrimary (event : js.Value) : Any := do {
   assignSample "primary";

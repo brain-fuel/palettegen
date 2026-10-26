@@ -176,6 +176,8 @@ func commitPalette() {
 }
 
 func restorePalette(key string) {
+	hideSelectionNotice()
+	secondaryRemovalPending = false
 	var __gp_v5 string
 	if current.Theme == "" {
 		__gp_v5 = ""

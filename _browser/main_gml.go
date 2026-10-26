@@ -128,6 +128,7 @@ func setPrimary(hex string) {
 }
 
 func setSecondary(hex string) {
+	secondaryRemovalPending = false
 	element("secondary-picker").Set("value", hex)
 	element("secondary-hex").Set("value", hex)
 	element("secondary-controls").Set("open", true)
@@ -677,6 +678,7 @@ func documentClick(event js.Value) any {
 }
 
 func primaryPickerChanged(event js.Value) any {
+	hideSelectionNotice()
 	activeRole = "primary"
 	setPrimary(valueAt("primary-picker"))
 	journalColor(valueAt("primary-picker"))
@@ -686,6 +688,7 @@ func primaryPickerChanged(event js.Value) any {
 }
 
 func secondaryPickerChanged(event js.Value) any {
+	hideSelectionNotice()
 	activeRole = "secondary"
 	setSecondary(valueAt("secondary-picker"))
 	journalColor(valueAt("secondary-picker"))
@@ -695,6 +698,7 @@ func secondaryPickerChanged(event js.Value) any {
 }
 
 func primaryHexChanged(event js.Value) any {
+	hideSelectionNotice()
 	parsed := palette.ParseHex(valueAt("primary-hex"))
 	if palette.ParsedOk(parsed) {
 		element("primary-picker").Set("value", palette.ParsedShade(parsed).Hex)
@@ -706,6 +710,14 @@ func primaryHexChanged(event js.Value) any {
 }
 
 func secondaryHexChanged(event js.Value) any {
+	hideSelectionNotice()
+	if strings.TrimSpace(valueAt("secondary-hex")) == "" {
+		if current.SecondaryHex != "" {
+			secondaryRemovalPending = true
+		}
+	} else {
+		secondaryRemovalPending = false
+	}
 	parsed := palette.ParseHex(valueAt("secondary-hex"))
 	if palette.ParsedOk(parsed) {
 		element("secondary-picker").Set("value", palette.ParsedShade(parsed).Hex)
@@ -717,14 +729,17 @@ func secondaryHexChanged(event js.Value) any {
 }
 
 func clearSecondary(event js.Value) any {
+	hadSecondary := current.SecondaryHex != ""
+	secondaryRemovalPending = false
+	hideSelectionNotice()
 	element("secondary-hex").Set("value", "")
 	element("secondary-controls").Set("open", false)
 	updatePairing()
 	scheduleLive()
 	flushLive()
 	commitPalette()
-	if !(jsBool(element("picture-workspace").Get("hidden"))) {
-		status("success", "Secondary removed. Your palette is updated; continue sampling or view it.")
+	if hadSecondary && current.SecondaryHex == "" {
+		secondaryRemovedNotice()
 	}
 	return nil
 }
@@ -772,12 +787,20 @@ func dismissNotice(this js.Value, args []js.Value) any {
 	return nil
 }
 
-func selectionNotice(role string, hex string) {
+func colorNotice(markup string, announcement string) {
 	js.Global().Call("clearTimeout", noticeTimer)
-	element("selection-notice").Set("innerHTML", "<span class=\"notice-swatch\" style=\"background:"+hex+"\"></span><span><strong>"+role+"</strong> set to <code>"+hex+"</code></span>")
+	element("selection-notice").Set("innerHTML", markup)
 	show("selection-notice", true)
-	textAt("selection-announcement", role+" set to "+hex)
+	textAt("selection-announcement", announcement)
 	noticeTimer = js.Global().Call("setTimeout", noticeCallback, 4000)
+}
+
+func selectionNotice(role string, hex string) {
+	colorNotice("<span class=\"notice-swatch\" style=\"background:"+hex+"\"></span><span><strong>"+role+"</strong> set to <code>"+hex+"</code></span>", role+" set to "+hex)
+}
+
+func secondaryRemovedNotice() {
+	colorNotice("<span><strong>Secondary color</strong> removed</span>", "Secondary color removed")
 }
 
 func assignPrimary(event js.Value) any {

@@ -244,6 +244,62 @@ async function secondaryActivation(page) {
   assert.equal(await page.locator('#secondary-controls').evaluate(e=>e.open),false,'Recovery must not trigger implicit activation');
   await page.evaluate(()=>scrollTo(0,0));
 }
+async function manualColorNotices(page) {
+  await page.locator('#view-editor').click();
+  if (!await page.locator('#secondary-controls').evaluate(e=>e.open)) await page.locator('#secondary-controls summary').click();
+  const notice = page.locator('#selection-notice');
+  async function edit(id, hex, role) {
+    await page.locator(id).fill(hex);
+    assert.equal(await notice.isVisible(),false,'An unfinished edit clears the preceding confirmation');
+    await page.locator(id).blur();
+    await paletteHas(page,role.toLowerCase(),hex);
+    await notice.waitFor({state:'visible'});
+    assert.equal(await notice.textContent(),`${role} set to ${hex}`);
+    assert.equal(await page.locator('#selection-announcement').textContent(),`${role} set to ${hex}`);
+  }
+  await edit('#primary-hex','#112233','Primary');
+  await edit('#secondary-hex','#445566','Secondary');
+  await notice.waitFor({state:'hidden',timeout:6000});
+  await edit('#secondary-hex','#556677','Secondary');
+  for (const [id, role, colors] of [
+    ['#primary-picker','Primary',['#667788','#778899']],
+    ['#secondary-picker','Secondary',['#AABBCC','#AABBDE']]
+  ]) {
+    for (const hex of colors) {
+      await page.locator(id).evaluate((e,hex)=>e.value=hex,hex);
+      await page.locator(id).dispatchEvent('input');
+      assert.equal(await notice.isVisible(),false,'Picker movement must not create a stream of notifications');
+    }
+    await page.locator(id).dispatchEvent('change');
+    const hex=colors.at(-1);
+    await paletteHas(page,role.toLowerCase(),hex);
+    await notice.waitFor({state:'visible'});
+    assert.equal(await notice.textContent(),`${role} set to ${hex}`);
+  }
+  await page.locator('#secondary-hex').fill('invalid');await page.locator('#secondary-hex').blur();
+  assert.equal(await notice.isVisible(),false,'Invalid edits must not report success');
+  await page.locator('#primary-hex').fill('#123456');await page.locator('#primary-hex').blur();
+  assert.equal(await notice.isVisible(),false,'A valid edit blocked by another invalid draft must not claim it was applied');
+  await paletteHas(page,'primary','#778899');
+  await edit('#secondary-hex','#AABBDE','Secondary');
+  await page.locator('#secondary-hex').fill('');
+  await page.waitForFunction(()=>!JSON.parse(document.querySelector('.json-view pre').textContent).secondary);
+  assert.equal(await notice.isVisible(),false,'Clearing while typing waits for completion');
+  await page.locator('#secondary-hex').blur();await notice.waitFor({state:'visible'});
+  assert.equal(await notice.textContent(),'Secondary color removed');
+  await notice.waitFor({state:'hidden',timeout:6000});
+  await page.locator('#undo-palette').click();await paletteHas(page,'secondary','#AABBDE');
+  assert.equal(await notice.isVisible(),false,'Undo clears the removal confirmation');
+  await page.locator('#clear-secondary').click();
+  await page.waitForFunction(()=>!JSON.parse(document.querySelector('.json-view pre').textContent).secondary);
+  await notice.waitFor({state:'visible'});
+  assert.equal(await notice.textContent(),'Secondary color removed');
+  assert.equal(await page.locator('#selection-announcement').textContent(),'Secondary color removed');
+  assert.equal(await notice.locator('.notice-swatch').count(),0,'A removal notice must not retain the old assignment swatch');
+  await edit('#primary-hex','#234567','Primary');
+  await page.locator('#undo-palette').click();
+  assert.equal(await notice.isVisible(),false,'Undo clears the reverted assignment confirmation');
+}
 async function runFlow(browser, deployment, baseURL, touch) {
   const context = await browser.newContext({viewport: {width: touch ? 390 : 1280, height: touch ? 844 : 900}, hasTouch: touch, isMobile: touch, ignoreHTTPSErrors: true});
   const page = await context.newPage();
@@ -400,6 +456,8 @@ async function runFlow(browser, deployment, baseURL, touch) {
   await visibleInViewport(page, '#remove-sample-secondary');
   await page.locator('#remove-sample-secondary').click();
   await page.waitForFunction(() => !JSON.parse(document.querySelector('.json-view pre').textContent).secondary);
+  assert.equal(await page.locator('#selection-notice').textContent(),'Secondary color removed');
+  assert(await page.locator('#selection-notice').isVisible());
   assert.equal(JSON.stringify((await jsonPalette(page)).supporting), support);
   await page.locator('#undo-palette').click(); await paletteHas(page, 'secondary', '#E87924');
   await page.locator('#redo-palette').click();
@@ -644,6 +702,8 @@ async function runFlow(browser, deployment, baseURL, touch) {
   const primaryBeforeRemove=(await jsonPalette(page)).primary;
   await page.locator('#clear-secondary-collapsed').focus(); await page.keyboard.press('Enter');
   await page.waitForFunction(()=>!JSON.parse(document.querySelector('.json-view pre').textContent).secondary);
+  assert.equal(await page.locator('#selection-notice').textContent(),'Secondary color removed');
+  assert(await page.locator('#selection-notice').isVisible());
   assert.deepEqual((await jsonPalette(page)).primary,primaryBeforeRemove);
   assert.equal(await page.locator('#secondary-summary-color').isVisible(),false);
   assert.equal(await page.locator('#clear-secondary-collapsed').isVisible(),false);
@@ -657,6 +717,7 @@ async function runFlow(browser, deployment, baseURL, touch) {
   assert(await page.locator('#clear-secondary-collapsed').isVisible());
   await previewMatchesPalette(page);
   await noOverflow(page,`${deployment} named pair`);
+  await manualColorNotices(page);
   assert.deepEqual(errors,[],`${deployment} browser errors`);
   await context.close();
   console.log(`PASS ${deployment}: safe previews, explicit assignments, isolated live refinement, precise pixels, thumb drag, recovery, shared image frame, sources and exports`);
