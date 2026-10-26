@@ -825,6 +825,7 @@ func mount() {
 	listen(element("open-history"), "click", toggleHistory)
 	listen(element("close-history"), "click", closeHistory)
 	listen(element("view-palette"), "click", viewPalette)
+	listen(element("view-editor"), "click", viewEditor)
 	listen(element("history-role"), "change", historyRoleChanged)
 	listen(js.Global(), "beforeunload", beforeLeaving)
 	listen(element("image-file"), "change", fileChanged)

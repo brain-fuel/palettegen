@@ -261,20 +261,31 @@ func historyRoleChanged(event js.Value) any {
 	return nil
 }
 
-func focusPalette() {
+// Explicit workspace navigation keeps focus and the scroll destination in
+// sync. Scroll margins leave the heading clear of the pinned control bar.
+func focusWorkspace(id string) {
 	flushLive()
 	commitPalette()
 	show("session-history", false)
 	element("open-history").Call("setAttribute", "aria-expanded", "false")
-	heading := element("result-heading")
+	heading := element(id)
 	options := js.Global().Get("Object").New()
 	options.Set("preventScroll", true)
 	heading.Call("focus", options)
 	heading.Call("scrollIntoView")
 }
 
+func focusPalette() {
+	focusWorkspace("result-heading")
+}
+
 func viewPalette(event js.Value) any {
 	focusPalette()
+	return nil
+}
+
+func viewEditor(event js.Value) any {
+	focusWorkspace("picture-title")
 	return nil
 }
 

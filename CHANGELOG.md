@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.0 — 2026-10-26
+
+- Keep Undo, Redo, History, Edit colors, and See palette together in a bar
+  that pins to the top after scrolling past it. Use compact navigation labels
+  on phones while retaining full touch targets.
+- Return to picture/manual color selection without losing the working picture
+  or palette. Workspace navigation moves keyboard focus and keeps destination
+  headings below the pinned bar.
+
 ## v0.3.2 — 2026-10-25
 
 - Standardize the product name as **PaletteGen** across the application,

@@ -135,11 +135,13 @@ let primaryFocused (event : js.Value) : Any := do { activeRole := "primary"; pai
 let secondaryFocused (event : js.Value) : Any := do { activeRole := "secondary"; paintRole (); nil }
 let historyRoleChanged (event : js.Value) : Any := do { activeRole := valueAt "history-role"; paintRole (); saveSession (); nil }
 
-let focusPalette () : Unit := do {
+-- Explicit workspace navigation keeps focus and the scroll destination in
+-- sync. Scroll margins leave the heading clear of the pinned control bar.
+let focusWorkspace (id : String) : Unit := do {
   flushLive (); commitPalette ();
   show "session-history" false;
   (element "open-history").Call "setAttribute" "aria-expanded" "false";
-  let heading := element "result-heading";
+  let heading := element id;
   let options := ((js.Global ()).Get "Object").New ();
   options.Set "preventScroll" true;
   heading.Call "focus" options;
@@ -147,7 +149,10 @@ let focusPalette () : Unit := do {
   ()
 }
 
+let focusPalette () : Unit := focusWorkspace "result-heading"
+
 let viewPalette (event : js.Value) : Any := do { focusPalette (); nil }
+let viewEditor (event : js.Value) : Any := do { focusWorkspace "picture-title"; nil }
 
 let beforeLeaving (event : js.Value) : Any := do { flushLive (); saveSession (); nil }
 

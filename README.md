@@ -77,7 +77,12 @@ starts a fresh preview. Pinch to zoom the picture, drag to pan, or use +/− and
 while plain arrows refine a pixel. Navigation never assigns a color.
 
 Every valid assigned or manual color change updates the palette immediately.
-**Palette** takes you to the result; there is no Generate step. Remove picture stays near the
+**See palette** takes you to the result; **Edit colors** returns to picture/manual
+color selection. Their bar also contains **Undo**, **Redo**, and **History** and
+pins to the top once you scroll past it. On compact screens, the navigation
+labels shorten to **Edit** and **Palette**, keeping all five touch targets on
+one row. Navigation moves keyboard focus to the destination below the bar and
+retains your picture and colors. There is no Generate step. Remove picture stays near the
 sampling area, and **Remove secondary** sits beside the Secondary control.
 The picture stays available across edits, themes, and history changes.
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-var Version string = "v0.3.2"
+var Version string = "v0.4.0"
 
 type Model struct {
 	Mode         string

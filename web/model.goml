@@ -10,7 +10,7 @@ import "strconv"
 import "strings"
 import "goforge.dev/palettegen/palette"
 
-let Version : String := "v0.3.2"
+let Version : String := "v0.4.0"
 
 type Model := {
   Mode : String;

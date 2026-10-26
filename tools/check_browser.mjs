@@ -119,6 +119,34 @@ async function visibleInViewport(page, selector) {
   const box = await page.locator(selector).boundingBox();
   assert(box && box.y >= 0 && box.y + box.height <= page.viewportSize().height + 1, `${selector} must stay in reach: ${JSON.stringify(box)}`);
 }
+async function workspaceNavigation(page) {
+  const bar = page.locator('#editor-history-bar');
+  const palette = await jsonPalette(page);
+  await page.evaluate(() => scrollTo(0, 0));
+  const initial = await bar.boundingBox();
+  assert(initial.y > 0, 'Toolbar starts in the document, below the header');
+  const editorTop = await page.locator('#image-panel').evaluate(e => e.getBoundingClientRect().top + scrollY);
+  await page.evaluate(y => scrollTo(0, y), Math.floor(initial.y / 2));
+  assert((await bar.boundingBox()).y > 0, 'Toolbar moves with the page before reaching the top');
+  await page.evaluate(y => scrollTo(0, y), initial.y + 200);
+  assert(Math.abs((await bar.boundingBox()).y) <= 1, 'Toolbar pins at the top after scrolling past its original position');
+  assert(Math.abs(await page.locator('#image-panel').evaluate(e => e.getBoundingClientRect().top + scrollY) - editorTop) <= 1, 'Pinning must not shift document content');
+  await page.locator('#view-palette').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'result-heading');
+  assert((await page.locator('#result-heading').boundingBox()).y >= (await bar.boundingBox()).height, 'Palette heading stays below pinned controls');
+  await page.locator('#open-history').click();
+  assert((await page.locator('#session-history').boundingBox()).y >= (await bar.boundingBox()).height, 'History stays below pinned controls');
+  await page.locator('#view-editor').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'picture-title');
+  assert.equal(await page.locator('#open-history').getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.locator('#session-history').isVisible(), false);
+  const heading = await page.locator('#picture-title').boundingBox();
+  assert(heading.y >= (await bar.boundingBox()).height, 'Editor heading stays below pinned controls');
+  await visibleInViewport(page, '#picture-title');
+  assert.deepEqual(await jsonPalette(page), palette, 'Workspace navigation must retain chosen colors');
+  await page.evaluate(() => scrollTo(0, 0));
+  assert(Math.abs((await bar.boundingBox()).y - initial.y) <= 1, 'Toolbar returns to its original place when scrolling back up');
+}
 async function runFlow(browser, deployment, baseURL, touch) {
   const context = await browser.newContext({viewport: {width: touch ? 390 : 1280, height: touch ? 844 : 900}, hasTouch: touch, isMobile: touch, ignoreHTTPSErrors: true});
   const page = await context.newPage();
@@ -141,6 +169,7 @@ async function runFlow(browser, deployment, baseURL, touch) {
   assert.equal(await page.locator('footer summary').textContent(), 'About PaletteGen');
   assert.equal(await page.getByRole('button', {name: 'Generate palette', exact: true}).count(), 0);
   assert.equal(await page.locator('#manual-apply').isVisible(), false);
+  await workspaceNavigation(page);
 
   await upload(page, photo); await statusContains(page, 'Picture ready');
   const picture = page.locator('#picture');
@@ -240,12 +269,25 @@ async function runFlow(browser, deployment, baseURL, touch) {
     await page.setViewportSize({width,height});
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     await page.evaluate(()=>scrollTo(0,0));
+    for (const selector of ['#undo-palette','#redo-palette','#open-history','#view-editor','#view-palette']) {
+      await visibleInViewport(page, selector);
+      const target = await page.locator(selector).boundingBox();
+      assert(target.width >= 44 && target.height >= 44, `${selector} keeps a full touch target`);
+      assert(Math.abs(target.y - (await page.locator('#undo-palette').boundingBox()).y) < 1, 'All five controls share one row on compact screens');
+    }
     await noOverflow(page,`${deployment} compact ${width}x${height}`);
     for (const selector of ['h1','#picture-viewport','#picture-zoom-in','#picture-fit','#change-picture','#clear-picture','#magnifier','#pick-primary','#pick-secondary','#remove-sample-secondary']) await visibleInViewport(page,selector);
     const change = await page.locator('#change-picture').boundingBox(), remove = await page.locator('#clear-picture').boundingBox();
     assert(Math.abs(change.y-remove.y)<1,'Change and Remove picture must share one row');
     for (const selector of ['#picture-zoom-in','#picture-zoom-out','#picture-fit','#change-picture','#clear-picture','#pick-primary','#pick-secondary']) assert((await page.locator(selector).boundingBox()).height>=44);
     if (height===548 || width===320) await page.screenshot({path:path.join(artifacts,`${deployment}-compact-${width}x${height}.png`)});
+    await page.locator('#view-palette').click();
+    assert(Math.abs((await page.locator('#editor-history-bar').boundingBox()).y) <= 1);
+    await page.screenshot({path:path.join(artifacts,`${deployment}-pinned-${width}x${height}.png`)});
+    await page.locator('#view-editor').click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'picture-title');
+    assert((await page.locator('#picture-title').boundingBox()).y >= (await page.locator('#editor-history-bar').boundingBox()).height);
+    assert.equal(await picture.evaluate(e => e.width), 320, 'Return to editor retains the working picture');
   }
   await page.setViewportSize({width:touch?390:1280,height:touch?844:900});
   await picture.scrollIntoViewIfNeeded();
