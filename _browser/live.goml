@@ -175,6 +175,25 @@ let scheduleLive () : Unit := do {
   } else ()
 }
 
+-- Adding is an explicit edit, separate from opening an existing disclosure.
+-- Programmatic toggles during rendering/recovery must never create a color.
+let secondarySummaryClicked (event : js.Value) : Any := do {
+  flushLive ();
+  let opened := (element "secondary-controls").Get "open" |> jsBool;
+  if !opened && current.SecondaryHex == "" && strings.TrimSpace (valueAt "secondary-hex") == "" then do {
+    event.Call "preventDefault";
+    commitPalette ();
+    let seed := normalizedHex (valueAt "secondary-picker");
+    if seed != "" then do {
+      activeRole := "secondary";
+      setSecondary seed; journalColor seed;
+      scheduleLive (); flushLive (); commitPalette ();
+      selectionNotice "Secondary" seed
+    } else ()
+  } else ();
+  nil
+}
+
 let fieldCommitted (event : js.Value) : Any := do { flushLive (); commitPalette (); nil }
 let primaryFocused (event : js.Value) : Any := do { activeRole := "primary"; paintRole (); nil }
 let secondaryFocused (event : js.Value) : Any := do { activeRole := "secondary"; paintRole (); nil }

@@ -305,6 +305,28 @@ func scheduleLive() {
 	}
 }
 
+// Adding is an explicit edit, separate from opening an existing disclosure.
+// Programmatic toggles during rendering/recovery must never create a color.
+func secondarySummaryClicked(event js.Value) any {
+	flushLive()
+	opened := jsBool(element("secondary-controls").Get("open"))
+	if !opened && current.SecondaryHex == "" && strings.TrimSpace(valueAt("secondary-hex")) == "" {
+		event.Call("preventDefault")
+		commitPalette()
+		seed := normalizedHex(valueAt("secondary-picker"))
+		if seed != "" {
+			activeRole = "secondary"
+			setSecondary(seed)
+			journalColor(seed)
+			scheduleLive()
+			flushLive()
+			commitPalette()
+			selectionNotice("Secondary", seed)
+		}
+	}
+	return nil
+}
+
 func fieldCommitted(event js.Value) any {
 	flushLive()
 	commitPalette()

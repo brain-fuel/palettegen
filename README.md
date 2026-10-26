@@ -100,6 +100,11 @@ focus reveals its role and name, and selecting it jumps to the full scale.
 On smaller screens, **Palette preview** opens the overview by the palette
 heading. It stays current through edits, history, undo, and role removal.
 
+**Add a secondary color** immediately applies the displayed picker color and
+updates the palette as one undoable edit. Expanding/collapsing an existing
+secondary only changes field visibility; undoing Add restores the absent,
+collapsed state.
+
 A collapsed secondary-color row keeps the chosen swatch visible and provides
 its own **Remove** button. Expanding the row hides that duplicate action and
 keeps removal beside the fields. Undo restores both the color and its summary.

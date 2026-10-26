@@ -111,7 +111,7 @@ let renderModel (m : web.Model) (push : Bool) : Unit := do {
   setPrimary (web.PickerHex m);
   (element "secondary-hex").Set "value" m.SecondaryHex;
   (element "curated-id").Set "value" (if m.CuratedID > 0 then fmt.Sprintf "%d" m.CuratedID else "1");
-  if m.SecondaryHex != "" then setSecondary m.SecondaryHex else ();
+  if m.SecondaryHex != "" then setSecondary m.SecondaryHex else (element "secondary-controls").Set "open" false;
   updatePairing ();
   let forms := document.Call "querySelectorAll" "input[name=t]";
   let mut i := 0;
@@ -624,6 +624,7 @@ let mount () : Unit := do {
   listen (element "clear-secondary") "click" clearSecondary;
   listen (element "clear-secondary-collapsed") "click" clearCollapsedSecondary;
   listen (element "secondary-controls") "toggle" secondaryToggled;
+  listen ((element "secondary-controls").Call "querySelector" "summary") "click" secondarySummaryClicked;
   listen (element "remove-sample-secondary") "click" clearSecondary;
   let primaryIDs : Slice String := ["primary-picker", "primary-hex"];
   let secondaryIDs : Slice String := ["secondary-picker", "secondary-hex"];

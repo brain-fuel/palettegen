@@ -218,6 +218,32 @@ async function palettePreviewFlow(page, label) {
   assert.deepEqual(await jsonPalette(page),palette,'Preview navigation does not assign or change colors');
   await page.locator('#view-editor').click(); await page.evaluate(()=>scrollTo(0,0));
 }
+async function secondaryActivation(page) {
+  const before = await jsonPalette(page);
+  assert.equal(before.secondary,undefined);
+  const summary = page.locator('#secondary-controls summary');
+  const seed = (await page.locator('#secondary-picker').inputValue()).toUpperCase();
+  await summary.click();
+  await paletteHas(page,'secondary',seed);
+  assert.equal(await page.locator('#secondary-hex').inputValue(),seed);
+  assert(await page.locator('#secondary-controls').evaluate(e=>e.open));
+  const added = await jsonPalette(page);
+  await summary.click();
+  await page.waitForFunction(()=>!document.getElementById('secondary-controls').open);
+  await summary.click();
+  await page.waitForFunction(()=>document.getElementById('secondary-controls').open);
+  assert.deepEqual(await jsonPalette(page),added,'Reopening an existing role must not edit it');
+  await page.locator('#undo-palette').click();
+  await page.waitForFunction(()=>!JSON.parse(document.querySelector('.json-view pre').textContent).secondary);
+  assert.deepEqual(await jsonPalette(page),before,'One undo reverses Add, including after disclosure toggles');
+  assert.equal(await page.locator('#secondary-controls').evaluate(e=>e.open),false,'Undo Add restores the absent, collapsed state');
+  await summary.focus(); await page.keyboard.press('Enter');
+  await paletteHas(page,'secondary',seed);
+  await page.locator('#undo-palette').click();
+  await page.waitForFunction(()=>!JSON.parse(document.querySelector('.json-view pre').textContent).secondary);
+  assert.equal(await page.locator('#secondary-controls').evaluate(e=>e.open),false,'Recovery must not trigger implicit activation');
+  await page.evaluate(()=>scrollTo(0,0));
+}
 async function runFlow(browser, deployment, baseURL, touch) {
   const context = await browser.newContext({viewport: {width: touch ? 390 : 1280, height: touch ? 844 : 900}, hasTouch: touch, isMobile: touch, ignoreHTTPSErrors: true});
   const page = await context.newPage();
@@ -243,6 +269,7 @@ async function runFlow(browser, deployment, baseURL, touch) {
   await workspaceNavigation(page);
   await palettePreviewFlow(page, deployment);
   await downloadBarScrolling(page, deployment);
+  await secondaryActivation(page);
 
   await upload(page, photo); await statusContains(page, 'Picture ready');
   const picture = page.locator('#picture');

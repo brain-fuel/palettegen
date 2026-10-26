@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.1 — 2026-10-26
+
+- Make Add a secondary color immediately apply the displayed picker color,
+  update the live palette, and create one undoable edit.
+- Keep collapse/expand separate from activation. Undoing the addition restores
+  the absent, collapsed state; rendering and history recovery never add a color.
+
 ## v0.5.0 — 2026-10-26
 
 - Add Examples/Demos navigation to the pinned toolbar, retaining six full-size

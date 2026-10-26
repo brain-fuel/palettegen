@@ -167,6 +167,8 @@ func renderModel(m web.Model, push bool) {
 	element("curated-id").Set("value", __gp_v2)
 	if m.SecondaryHex != "" {
 		setSecondary(m.SecondaryHex)
+	} else {
+		element("secondary-controls").Set("open", false)
 	}
 	updatePairing()
 	forms := document.Call("querySelectorAll", "input[name=t]")
@@ -836,6 +838,7 @@ func mount() {
 	listen(element("clear-secondary"), "click", clearSecondary)
 	listen(element("clear-secondary-collapsed"), "click", clearCollapsedSecondary)
 	listen(element("secondary-controls"), "toggle", secondaryToggled)
+	listen(element("secondary-controls").Call("querySelector", "summary"), "click", secondarySummaryClicked)
 	listen(element("remove-sample-secondary"), "click", clearSecondary)
 	primaryIDs := []string{"primary-picker", "primary-hex"}
 	secondaryIDs := []string{"secondary-picker", "secondary-hex"}
