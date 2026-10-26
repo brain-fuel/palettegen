@@ -132,7 +132,7 @@ let alertsTile (p : palette.Palette) : String := do {
 let navTile (p : palette.Palette) : String := do {
   let pr := p.Primary[0].Shades;
   "<div class=\"tile-body\"><div class=\"nav-demo\" style=\"background:" + pr[0].Hex + "\">" +
-    "<strong style=\"color:" + pr[9].Hex + "\">Forge</strong>" +
+    "<strong style=\"color:" + pr[9].Hex + "\">PaletteGen</strong>" +
     "<a style=\"color:" + pr[7].Hex + "\">Overview</a>" +
     "<a style=\"background:" + pr[4].Hex + ";color:" + inkFor pr[4] + "\">Reports</a>" +
     "<a style=\"color:" + pr[7].Hex + "\">Settings</a>" +
@@ -351,14 +351,14 @@ let headAssets (m : Model) : String :=
 let PageHead (m : Model) : String :=
     "<meta charset=\"utf-8\">\n" +
     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
-    "<title>Palette Forge - complete UI color palettes</title>\n" +
+    "<title>PaletteGen - complete UI color palettes</title>\n" +
     "<link rel=\"icon\" href=\"data:,\">" +
     headAssets m
 
 let PageBody (m : Model) : String :=
     "<main>\n" +
     "<header class=\"hero\">" +
-    "<div class=\"hero-top\"><h1>Palette Builder</h1>" + themeToggle m + "</div>" +
+    "<div class=\"hero-top\"><h1>PaletteGen</h1>" + themeToggle m + "</div>" +
     "</header>\n" +
     "<nav id=\"editor-history-bar\" class=\"editor-history-bar\" aria-label=\"Live palette controls\" hidden>" +
     "<button id=\"undo-palette\" type=\"button\" class=\"ghost\" disabled>Undo</button><button id=\"redo-palette\" type=\"button\" class=\"ghost\" disabled>Redo</button>" +
@@ -367,7 +367,7 @@ let PageBody (m : Model) : String :=
     "<div id=\"model-note\" role=\"status\">" + NoteHTML m + "</div>" +
     controls m +
     "<div id=\"palette-results\" role=\"region\" aria-label=\"Your palette\">" + ResultHTML m + "</div><p id=\"result-status\" class=\"sr-only\" aria-live=\"polite\"></p>" +
-    "\n<footer><details class=\"project-info\"><summary>About Palette Forge</summary>" + projectMeta () +
+    "\n<footer><details class=\"project-info\"><summary>About PaletteGen</summary>" + projectMeta () +
     "<p>Palettes and method from <em>Refactoring UI: Color Palettes</em> and <em>Refactoring UI</em> (Adam Wathan &amp; Steve Schoger). " +
     "Written in goml on the <a href=\"https://goforge.dev\">goforge</a> toolchain. " +
     "<a href=\"https://github.com/brain-fuel/palettegen/blob/main/LICENSE\">MIT licensed</a>.</p></details></footer>\n" +

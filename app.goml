@@ -1,6 +1,6 @@
 module main
 
--- Palette Forge: a web app that gives out complete UI color palettes.
+-- PaletteGen: a web app that gives out complete UI color palettes.
 -- Palette state lives in the URL (?c=hex&s=hex or ?p=id). Server-rendered
 -- GET forms work independently; the embedded goml/Wasm target adds image
 -- sampling and updates in place. The shared renderer lives in web/.
@@ -99,7 +99,7 @@ let main () : Unit := do {
   http.HandleFunc "/palette.json" handleJSON;
   http.HandleFunc "/palette.pdf" handlePDF;
   let port := portFrom (os.Getenv "PORT");
-  fmt.Printf "Palette Forge %s listening on http://localhost:%s\n" web.Version port;
+  fmt.Printf "PaletteGen %s listening on http://localhost:%s\n" web.Version port;
   let err := http.ListenAndServe (":" + port) nil;
   if err != nil then panic err else ()
 }

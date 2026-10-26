@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.2 — 2026-10-25
+
+- Standardize the product name as **PaletteGen** across the application,
+  browser loading screen, documentation, and goforge.dev catalog and page.
+- Rename the session storage namespace while preserving existing palette,
+  color, and undo history through one-time migration.
+
 ## v0.3.1 — 2026-10-24
 
 - Name both base colors in two-color palette titles, JSON, PDFs, and download

@@ -38,7 +38,9 @@ let ignoreStorageFailure () : Unit := do { let _ := recover (); () }
 let readSession () : String := do {
   defer ignoreStorageFailure ();
   let storage := (js.Global ()).Get "sessionStorage";
-  let value := storage.Call "getItem" "palette-forge/session/v1";
+  let currentValue := storage.Call "getItem" "palettegen/session/v1";
+  -- The obsolete name is read only to recover sessions from earlier builds.
+  let value := if currentValue.IsNull () then storage.Call "getItem" "palette-forge/session/v1" else currentValue;
   if value.IsNull () then "" else value.String ()
 }
 
@@ -49,7 +51,9 @@ let saveSession () : Unit := do {
   let bytes, err := json.Marshal state;
   if err == nil then do {
     let storage := (js.Global ()).Get "sessionStorage";
-    storage.Call "setItem" "palette-forge/session/v1" (String bytes);
+    storage.Call "setItem" "palettegen/session/v1" (String bytes);
+    -- Remove the old namespace only after the new session was stored.
+    storage.Call "removeItem" "palette-forge/session/v1";
     ()
   } else ()
 }

@@ -128,7 +128,7 @@ func main() {
 	http.HandleFunc("/palette.json", handleJSON)
 	http.HandleFunc("/palette.pdf", handlePDF)
 	port := portFrom(os.Getenv("PORT"))
-	fmt.Printf("Palette Forge %s listening on http://localhost:%s\n", web.Version, port)
+	fmt.Printf("PaletteGen %s listening on http://localhost:%s\n", web.Version, port)
 	err := http.ListenAndServe(":"+port, nil)
 	if err != nil {
 		panic(err)

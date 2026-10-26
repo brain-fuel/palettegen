@@ -1,4 +1,4 @@
-# Palette Forge
+# PaletteGen
 
 A web app that gives out complete UI color palettes — written entirely in
 [goml](https://goforge.dev/goplus/), the ML-family surface for the Go+
@@ -95,8 +95,8 @@ screen readers receive the same confirmation. Pairing cautions are amber,
 errors are red, successful operations are green, and loading/neutral guidance
 has a quieter treatment, with text labels as well as color.
 
-The header contains only **Palette Builder** and theme controls. Version,
-installation, and project links live in the footer's **About Palette Forge**.
+The header contains only **PaletteGen** and theme controls. Version,
+installation, and project links live in the footer's **About PaletteGen**.
 
 Images are processed on your device and are not uploaded to the server or
 included in share URLs. Web images are fetched without credentials and must

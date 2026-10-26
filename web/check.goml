@@ -1,6 +1,6 @@
 module web
 
--- Self-checks, in goml: `paletteforge check` (or `make check`) runs them
+-- Self-checks, in goml: `palettegen check` (or `make check`) runs them
 -- and exits non-zero on failure.
 
 import "fmt"

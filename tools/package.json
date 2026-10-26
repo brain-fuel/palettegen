@@ -1,6 +1,6 @@
 {
   "private": true,
-  "description": "Browser verification tools for Palette Forge",
+  "description": "Browser verification tools for PaletteGen",
   "scripts": {
     "check": "node check_browser.mjs"
   },

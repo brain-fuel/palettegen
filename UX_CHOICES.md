@@ -1,6 +1,6 @@
 # UX choices
 
-This is the decision log for Palette Forge / Palette Builder. It applies
+This is the decision log for PaletteGen. It applies
 Joe Natoli's task-focused UX principles and *Refactoring UI*, using the
 Patrick Henry Winston (PHW) “put a fence around the idea” structure requested
 by the user. These are our applications, not claims that these authors
@@ -31,7 +31,7 @@ optional; there is no required generation step.
 
 | Outside the fence — avoid | Inside the fence — adopt | Principle and boundary |
 | --- | --- | --- |
-| Introductory copy and project metadata consume the top of the screen before the user can work. | Keep **Palette Builder** and Auto/Light/Dark in the header. Put installation, version, and project links in About. | Natoli: prioritize the task. Remove purpose text that the visible controls already communicate; retain labels that explain an actual choice. |
+| Introductory copy and project metadata consume the top of the screen before the user can work. | Keep **PaletteGen** and Auto/Light/Dark in the header. Put installation, version, and project links in About. | Natoli: prioritize the task. Remove purpose text that the visible controls already communicate; retain labels that explain an actual choice. |
 | Burying picture picking below manual fields makes it easy to miss; emphasizing pictures alone makes a picture seem required. | Put the visible picker first, followed by **Or choose colors manually**. | Discoverability with a clear alternative. Picture-first does not mean picture-only. |
 | A loaded picture appears elsewhere while an empty upload panel still occupies the original frame. | Replace **Choose File / drop here** with the picture in that same frame. | Spatial continuity: the input area becomes the working area. Keep replacement available without retaining a duplicate empty panel. |
 | Expanded replacement inputs compete with the loaded picture, or disappear so completely that replacement is hard to find. | Collapse them under **Change picture**; dropping another picture onto the same frame also replaces it. | Progressive disclosure: hide secondary setup, keep its entry point visible. |
@@ -76,6 +76,8 @@ optional; there is no required generation step.
 
 | Outside the fence — avoid | Inside the fence — adopt | Principle and boundary |
 | --- | --- | --- |
+| Observed: the app, loading shell, documentation, and project catalog used different product names. | Use **PaletteGen** consistently for the product, including the header, About, browser title, loading shell, and goforge.dev catalog. Keep `palettegen` for commands, module paths, URLs, and filesystem names. | One product identity makes the installed app and browser app recognizable. This supersedes the earlier split naming; descriptive palette titles still identify the selected colors. |
+| Preventive guardrail: changing a storage namespace discards recoverable palettes, or leaving both namespaces active lets them diverge. | Save under `palettegen/session/v1`; migrate an existing session once and remove its obsolete key only after a successful write. Prefer current data if both keys exist. | A naming cleanup must preserve the session recovery contract. The old key remains solely as an input for migration; unavailable storage still permits normal editing. |
 | Inconsistent typography makes headings, prose, and color/code values harder to distinguish, or exports diverge from the UI. | Use Overpass headings, Atkinson Hyperlegible UI text, and Atkinson Hyperlegible Mono code/hex/HSL, including PDF exports. | Give each kind of content a consistent readable treatment across outputs. |
 | Compactness is achieved with tiny targets, hidden focus, unreadable inputs, or sideways page overflow. | Keep generous touch targets, visible keyboard focus, readable input sizes, and the existing spacing system. | Density must support use, not just fit a screenshot. Preserve page zoom and access to every control. |
 | A bright sampled brand makes control labels/outlines disappear, or fixing that changes the user's actual palette. | Use deeper brand ink in light mode and lighter ink in dark mode, with neutral fallback when contrast is insufficient. | Interface readability and palette content are separate responsibilities. Adjust control ink, not the selected colors. |

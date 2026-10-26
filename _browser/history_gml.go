@@ -56,7 +56,14 @@ func ignoreStorageFailure() {
 func readSession() string {
 	defer ignoreStorageFailure()
 	storage := js.Global().Get("sessionStorage")
-	value := storage.Call("getItem", "palette-forge/session/v1")
+	currentValue := storage.Call("getItem", "palettegen/session/v1")
+	var __gp_v0 js.Value
+	if currentValue.IsNull() {
+		__gp_v0 = storage.Call("getItem", "palette-forge/session/v1")
+	} else {
+		__gp_v0 = currentValue
+	}
+	value := __gp_v0
 	if value.IsNull() {
 		return ""
 	}
@@ -69,7 +76,8 @@ func saveSession() {
 	bytes, err := json.Marshal(state)
 	if err == nil {
 		storage := js.Global().Get("sessionStorage")
-		storage.Call("setItem", "palette-forge/session/v1", string(bytes))
+		storage.Call("setItem", "palettegen/session/v1", string(bytes))
+		storage.Call("removeItem", "palette-forge/session/v1")
 	} else {
 		return
 	}
@@ -103,32 +111,32 @@ func paintHistory() {
 			key := paletteJournal[i]
 			m := web.ModelFromQuery(key, current.Embed)
 			primary := web.PickerHex(m)
-			var __gp_v0 string
-			if m.SecondaryHex == "" {
-				__gp_v0 = ""
-			} else {
-				__gp_v0 = " + " + m.SecondaryHex
-			}
-			secondary := __gp_v0
 			var __gp_v1 string
-			if current.QS == key {
-				__gp_v1 = "true"
-			} else {
-				__gp_v1 = "false"
-			}
-			var __gp_v2 string
 			if m.SecondaryHex == "" {
-				__gp_v2 = ""
+				__gp_v1 = ""
 			} else {
-				__gp_v2 = historySwatch(m.SecondaryHex)
+				__gp_v1 = " + " + m.SecondaryHex
+			}
+			secondary := __gp_v1
+			var __gp_v2 string
+			if current.QS == key {
+				__gp_v2 = "true"
+			} else {
+				__gp_v2 = "false"
 			}
 			var __gp_v3 string
-			if m.Mode == "curated" {
-				__gp_v3 = m.Pal.Name
+			if m.SecondaryHex == "" {
+				__gp_v3 = ""
 			} else {
-				__gp_v3 = primary + secondary
+				__gp_v3 = historySwatch(m.SecondaryHex)
 			}
-			rows = rows + "<button type=\"button\" class=\"history-palette\" data-palette-key=\"" + html.EscapeString(key) + "\" aria-pressed=\"" + __gp_v1 + "\">" + historySwatch(primary) + __gp_v2 + "<span>" + html.EscapeString(__gp_v3) + "</span></button>"
+			var __gp_v4 string
+			if m.Mode == "curated" {
+				__gp_v4 = m.Pal.Name
+			} else {
+				__gp_v4 = primary + secondary
+			}
+			rows = rows + "<button type=\"button\" class=\"history-palette\" data-palette-key=\"" + html.EscapeString(key) + "\" aria-pressed=\"" + __gp_v2 + "\">" + historySwatch(primary) + __gp_v3 + "<span>" + html.EscapeString(__gp_v4) + "</span></button>"
 			i = i - 1
 		}
 		element("palette-history").Set("innerHTML", rows)
@@ -168,13 +176,13 @@ func commitPalette() {
 }
 
 func restorePalette(key string) {
-	var __gp_v4 string
+	var __gp_v5 string
 	if current.Theme == "" {
-		__gp_v4 = ""
+		__gp_v5 = ""
 	} else {
-		__gp_v4 = "&t=" + current.Theme
+		__gp_v5 = "&t=" + current.Theme
 	}
-	m := web.ModelFromQuery(key+__gp_v4, current.Embed)
+	m := web.ModelFromQuery(key+__gp_v5, current.Embed)
 	renderModel(m, false)
 	js.Global().Get("history").Call("replaceState", nil, "", canonicalURL(current))
 	paintHistory()
@@ -188,13 +196,13 @@ func navigatedPalette() {
 	nearest := -1
 	distance := len(undoTrail) + 1
 	for i, key := range undoTrail {
-		var __gp_v5 int
+		var __gp_v6 int
 		if i > undoIndex {
-			__gp_v5 = i - undoIndex
+			__gp_v6 = i - undoIndex
 		} else {
-			__gp_v5 = undoIndex - i
+			__gp_v6 = undoIndex - i
 		}
-		delta := __gp_v5
+		delta := __gp_v6
 		if key == current.QS && delta < distance {
 			nearest = i
 			distance = delta
@@ -240,13 +248,13 @@ func redoPalette(event js.Value) any {
 func toggleHistory(event js.Value) any {
 	opened := jsBool(element("session-history").Get("hidden"))
 	show("session-history", opened)
-	var __gp_v6 any
+	var __gp_v7 any
 	if opened {
-		__gp_v6 = "true"
+		__gp_v7 = "true"
 	} else {
-		__gp_v6 = "false"
+		__gp_v7 = "false"
 	}
-	element("open-history").Call("setAttribute", "aria-expanded", __gp_v6)
+	element("open-history").Call("setAttribute", "aria-expanded", __gp_v7)
 	paintHistory()
 	if opened {
 		element("session-history").Call("scrollIntoView")

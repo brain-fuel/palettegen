@@ -136,7 +136,9 @@ async function runFlow(browser, deployment, baseURL, touch) {
   assert((await page.locator('#manual-title').boundingBox()).y < page.viewportSize().height);
   assert.equal(await page.locator('.hero .meta').count(), 0);
   assert.equal(await page.locator('.hero p').count(), 0);
-  assert.equal(await page.locator('h1').textContent(), 'Palette Builder');
+  assert.equal(await page.locator('h1').textContent(), 'PaletteGen');
+  assert.equal(await page.title(), 'PaletteGen - complete UI color palettes');
+  assert.equal(await page.locator('footer summary').textContent(), 'About PaletteGen');
   assert.equal(await page.getByRole('button', {name: 'Generate palette', exact: true}).count(), 0);
   assert.equal(await page.locator('#manual-apply').isVisible(), false);
 
@@ -434,6 +436,26 @@ async function runFlow(browser, deployment, baseURL, touch) {
   assert(await page.locator('[data-history-color="#646400"]').count());
   assert(await page.locator('[data-palette-key="c=7C3AED&s=E87924"]').count());
   await page.locator('#close-history').click();
+  // A renamed product must recover old sessions, including history, and
+  // retire the obsolete namespace without overwriting newer saved work.
+  const savedSession = await page.evaluate(() => sessionStorage.getItem('palettegen/session/v1'));
+  assert(savedSession);
+  await page.evaluate(() => {
+    sessionStorage.setItem('palette-forge/session/v1', sessionStorage.getItem('palettegen/session/v1'));
+    sessionStorage.removeItem('palettegen/session/v1');
+  });
+  await page.goto(baseURL); await ready(page);
+  await paletteHas(page,'primary','#112233'); await paletteHas(page,'secondary','#445566');
+  assert.deepEqual(JSON.parse(await page.evaluate(() => sessionStorage.getItem('palettegen/session/v1'))), JSON.parse(savedSession));
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('palette-forge/session/v1')), null);
+  await page.evaluate(() => {
+    const obsolete = JSON.parse(sessionStorage.getItem('palettegen/session/v1'));
+    obsolete.trail = ['c=FF0000']; obsolete.cursor = 0;
+    sessionStorage.setItem('palette-forge/session/v1', JSON.stringify(obsolete));
+  });
+  await page.goto(baseURL); await ready(page);
+  await paletteHas(page,'primary','#112233'); await paletteHas(page,'secondary','#445566');
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('palette-forge/session/v1')), null);
   await page.locator('.curated-options summary').click(); await page.locator('#curated-id').selectOption('12');
   await page.waitForFunction(()=>JSON.parse(document.querySelector('.json-view pre').textContent).basis.includes('customized'));
 

@@ -1,4 +1,4 @@
-# Palette Forge
+# PaletteGen
 
 - Before starting any UI work, and immediately after every context compaction
   during UI work, inspect `~/para/projects/ui/refactoring_ui/chapters/README.md`
@@ -25,7 +25,7 @@
   outcomes (warnings, errors, successes, and neutral information).
 - Show the image in the upload frame. Update palettes live, preserve session
   palette/color history, and keep removal and history actions near sampling.
-- Keep the header to Palette Builder and theme controls. Group Change/Remove
+- Keep the header to PaletteGen and theme controls. Group Change/Remove
   picture on one row; omit routine instruction paragraphs. Keep the loaded
   editing task in view at 375x548 and 320x568 without shrinking touch targets.
 - Picture gestures zoom/pan without sampling; provide +, − and Fit controls.
