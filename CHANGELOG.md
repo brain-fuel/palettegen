@@ -6,6 +6,8 @@
   update the live palette, and create one undoable edit.
 - Keep collapse/expand separate from activation. Undoing the addition restores
   the absent, collapsed state; rendering and history recovery never add a color.
+- Exclude checkout-specific VCS metadata from browser builds so embedded Wasm
+  stays reproducible across commits, clean checkouts, and worktrees.
 
 ## v0.5.0 — 2026-10-26
 

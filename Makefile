@@ -22,7 +22,7 @@ ci:
 	$(GOML) gen -check ./...
 	GOOS=js GOARCH=wasm $(GOML) gen -check ./_browser
 	go build ./...
-	GOOS=js GOARCH=wasm go build -trimpath -ldflags='-s -w' -o try/app.wasm ./_browser
+	GOOS=js GOARCH=wasm go build -buildvcs=false -trimpath -ldflags='-s -w' -o try/app.wasm ./_browser
 	python3 tools/gen_browser.py --check
 	go build -o palettegen . && ./palettegen check
 
@@ -34,7 +34,7 @@ data:
 # The WebAssembly build behind goforge.dev/palettegen/try.
 wasm: gen
 	GOOS=js GOARCH=wasm $(GOML) gen ./_browser
-	GOOS=js GOARCH=wasm go build -trimpath -ldflags='-s -w' -o try/app.wasm ./_browser
+	GOOS=js GOARCH=wasm go build -buildvcs=false -trimpath -ldflags='-s -w' -o try/app.wasm ./_browser
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" try/wasm_exec.js
 	cp tools/browser_bootstrap.js try/browser.js
 	python3 tools/gen_browser.py --pack-only

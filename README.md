@@ -23,7 +23,9 @@ make run          # generate, build browser assets, build server, run
 Working on the source requires Go ≥ 1.26 and the goml tool:
 `go install goforge.dev/goplus/cmd/goml@v0.158.0`.
 The committed browser assets are built with Go 1.26.5; use that version for
-the deterministic browser-asset check in `make ci`.
+the deterministic browser-asset check in `make ci`. Browser builds exclude
+checkout-specific VCS metadata so committing or using a worktree does not
+change the embedded Wasm.
 
 - `make check` — run the goml-native self-checks (`./palettegen check`)
 - `make ci` — verify committed generated code is fresh, build, and check
