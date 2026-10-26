@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.0 — 2026-10-26
+
+- Add Examples/Demos navigation to the pinned toolbar, retaining six full-size
+  touch targets on compact screens.
+- Add a live desktop palette rail and a collapsible small-screen preview, with
+  gradients through all actual shades and links to each full color scale.
+- Keep the secondary swatch visible when collapsed, with a nearby Remove action
+  that hides on expansion and participates in undo/history.
+- Pin Download PDF / Download JSON below the workspace toolbar when scrolling
+  through a palette, and restore the row's normal position when scrolling back.
+- Keep the pinned downloads current and accessible in both browser builds and
+  the native server's fallback without JavaScript.
+- Make the download row transparent, with solid button backgrounds to keep
+  their labels readable over scrolling palette content. Add 13px of vertical
+  breathing room and remove divider lines beneath the pinned rows.
+
 ## v0.4.0 — 2026-10-26
 
 - Keep Undo, Redo, History, Edit colors, and See palette together in a bar

@@ -118,6 +118,7 @@ func updatePairing() {
 	feedbackAt("pairing-note", web.PairingTone(m), web.PairingGuidance(m))
 	element("curated-secondary").Set("value", valueAt("secondary-hex"))
 	show("remove-sample-secondary", strings.TrimSpace(valueAt("secondary-hex")) != "")
+	updateSecondarySummary()
 }
 
 func setPrimary(hex string) {
@@ -190,6 +191,8 @@ func renderModel(m web.Model, push bool) {
 		history.Call("pushState", nil, "", canonicalURL(m))
 	}
 	paintRole()
+	paintPreviewState()
+	syncToolbarHeight()
 	textAt("result-status", "Palette ready: "+m.Pal.Name)
 }
 
@@ -603,49 +606,64 @@ func documentClick(event js.Value) any {
 		oldPalette := target.Call("closest", "button[data-palette-key]")
 		oldColor := target.Call("closest", "button[data-history-color]")
 		theme := target.Call("closest", "#theme-links a")
-		if current.Embed && !download.IsNull() {
+		previewToggle := target.Call("closest", "#preview-toggle")
+		scaleLink := target.Call("closest", "a[data-scale-target]")
+		if !previewToggle.IsNull() {
 			event.Call("preventDefault")
-			staticDownload(download)
+			togglePreview()
 		} else {
-			if !oldPalette.IsNull() {
-				key := jsString(oldPalette.Call("getAttribute", "data-palette-key"))
-				restorePalette(key)
-				commitPalette()
+			if !scaleLink.IsNull() {
+				event.Call("preventDefault")
+				id := jsString(scaleLink.Call("getAttribute", "data-scale-target"))
+				previewOpen = false
+				paintPreviewState()
+				focusWorkspace(id)
 			} else {
-				if !oldColor.IsNull() {
-					hex := jsString(oldColor.Call("getAttribute", "data-history-color"))
-					applySample(hex)
-					flushLive()
-					commitPalette()
-					var __gp_v6 string
-					if activeRole == "secondary" {
-						__gp_v6 = "Secondary"
-					} else {
-						__gp_v6 = "Primary"
-					}
-					selectionNotice(__gp_v6, hex)
-					status("success", "Color restored from this session. Your palette is updated.")
+				if current.Embed && !download.IsNull() {
+					event.Call("preventDefault")
+					staticDownload(download)
 				} else {
-					if !theme.IsNull() {
-						event.Call("preventDefault")
-						flushLive()
+					if !oldPalette.IsNull() {
+						key := jsString(oldPalette.Call("getAttribute", "data-palette-key"))
+						restorePalette(key)
 						commitPalette()
-						query := jsString(theme.Call("getAttribute", "href"))
-						firstRaw := valueAt("primary-hex")
-						secondRaw := valueAt("secondary-hex")
-						renderModel(web.ModelFromQuery(query, current.Embed), true)
-						element("primary-hex").Set("value", firstRaw)
-						element("secondary-hex").Set("value", secondRaw)
-						updatePairing()
-						paintRole()
 					} else {
-						suggestion := target.Call("closest", "button[data-color]")
-						if !suggestion.IsNull() {
-							x, errX := strconv.Atoi(jsString(suggestion.Call("getAttribute", "data-x")))
-							y, errY := strconv.Atoi(jsString(suggestion.Call("getAttribute", "data-y")))
-							if errX == nil && errY == nil {
-								samplePixel(x, y)
-								saveSession()
+						if !oldColor.IsNull() {
+							hex := jsString(oldColor.Call("getAttribute", "data-history-color"))
+							applySample(hex)
+							flushLive()
+							commitPalette()
+							var __gp_v6 string
+							if activeRole == "secondary" {
+								__gp_v6 = "Secondary"
+							} else {
+								__gp_v6 = "Primary"
+							}
+							selectionNotice(__gp_v6, hex)
+							status("success", "Color restored from this session. Your palette is updated.")
+						} else {
+							if !theme.IsNull() {
+								event.Call("preventDefault")
+								flushLive()
+								commitPalette()
+								query := jsString(theme.Call("getAttribute", "href"))
+								firstRaw := valueAt("primary-hex")
+								secondRaw := valueAt("secondary-hex")
+								renderModel(web.ModelFromQuery(query, current.Embed), true)
+								element("primary-hex").Set("value", firstRaw)
+								element("secondary-hex").Set("value", secondRaw)
+								updatePairing()
+								paintRole()
+							} else {
+								suggestion := target.Call("closest", "button[data-color]")
+								if !suggestion.IsNull() {
+									x, errX := strconv.Atoi(jsString(suggestion.Call("getAttribute", "data-x")))
+									y, errY := strconv.Atoi(jsString(suggestion.Call("getAttribute", "data-y")))
+									if errX == nil && errY == nil {
+										samplePixel(x, y)
+										saveSession()
+									}
+								}
 							}
 						}
 					}
@@ -706,6 +724,12 @@ func clearSecondary(event js.Value) any {
 	if !(jsBool(element("picture-workspace").Get("hidden"))) {
 		status("success", "Secondary removed. Your palette is updated; continue sampling or view it.")
 	}
+	return nil
+}
+
+func clearCollapsedSecondary(event js.Value) any {
+	clearSecondary(event)
+	element("secondary-controls").Call("querySelector", "summary").Call("focus")
 	return nil
 }
 
@@ -775,6 +799,7 @@ func chooseReplacement(event js.Value) any {
 }
 
 func resized(event js.Value) any {
+	syncToolbarHeight()
 	if !(jsBool(element("picture").Get("hidden"))) {
 		fitPicture()
 	}
@@ -809,6 +834,8 @@ func mount() {
 	listen(element("primary-hex"), "input", primaryHexChanged)
 	listen(element("secondary-hex"), "input", secondaryHexChanged)
 	listen(element("clear-secondary"), "click", clearSecondary)
+	listen(element("clear-secondary-collapsed"), "click", clearCollapsedSecondary)
+	listen(element("secondary-controls"), "toggle", secondaryToggled)
 	listen(element("remove-sample-secondary"), "click", clearSecondary)
 	primaryIDs := []string{"primary-picker", "primary-hex"}
 	secondaryIDs := []string{"secondary-picker", "secondary-hex"}
@@ -826,6 +853,9 @@ func mount() {
 	listen(element("close-history"), "click", closeHistory)
 	listen(element("view-palette"), "click", viewPalette)
 	listen(element("view-editor"), "click", viewEditor)
+	listen(element("view-examples"), "click", viewExamples)
+	listen(document, "pointerover", previewHint)
+	listen(document, "focusin", previewHint)
 	listen(element("history-role"), "change", historyRoleChanged)
 	listen(js.Global(), "beforeunload", beforeLeaving)
 	listen(element("image-file"), "change", fileChanged)
@@ -858,11 +888,13 @@ func mount() {
 	listen(js.Global(), "resize", resized)
 	listen(js.Global(), "popstate", backOrForward)
 	show("editor-history-bar", true)
+	syncToolbarHeight()
 	show("manual-apply", false)
 	show("curated-apply", false)
 	loadHistory(len(os.Args) > 1 && os.Args[1] != "")
 	updatePairing()
 	paintRole()
+	paintPreviewState()
 }
 
 func main() {

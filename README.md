@@ -80,11 +80,29 @@ Every valid assigned or manual color change updates the palette immediately.
 **See palette** takes you to the result; **Edit colors** returns to picture/manual
 color selection. Their bar also contains **Undo**, **Redo**, and **History** and
 pins to the top once you scroll past it. On compact screens, the navigation
-labels shorten to **Edit** and **Palette**, keeping all five touch targets on
-one row. Navigation moves keyboard focus to the destination below the bar and
-retains your picture and colors. There is no Generate step. Remove picture stays near the
+labels shorten to **Edit** and **Palette**. **Examples** (**Demos** on phones)
+jumps to the in-context UI examples; all six toolbar buttons retain full touch
+targets. Navigation focuses the destination below the pinned rows and retains
+your picture and colors. There is no Generate step. Remove picture stays near the
 sampling area, and **Remove secondary** sits beside the Secondary control.
 The picture stays available across edits, themes, and history changes.
+
+The **Download PDF / Download JSON** row also pins after you scroll past it,
+directly below the workspace bar, and returns to its place below the palette
+title when you scroll back up. The row is transparent, with 13px of space above
+and below the buttons and no divider beneath either pinned row. The buttons have solid
+backgrounds so their labels stay readable over the palette. It exports the
+current palette while pinned.
+
+A narrow live palette preview sits in the right margin on screens at least
+1280px wide. Each strip blends through the scale's actual ten shades; hover or
+focus reveals its role and name, and selecting it jumps to the full scale.
+On smaller screens, **Palette preview** opens the overview by the palette
+heading. It stays current through edits, history, undo, and role removal.
+
+A collapsed secondary-color row keeps the chosen swatch visible and provides
+its own **Remove** button. Expanding the row hides that duplicate action and
+keeps removal beside the fields. Undo restores both the color and its summary.
 
 **Undo**, **Redo**, and **History** remain available while editing or viewing
 the palette. A completed drag or field edit is one undo step; history also

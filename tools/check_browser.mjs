@@ -134,6 +134,10 @@ async function workspaceNavigation(page) {
   await page.locator('#view-palette').focus(); await page.keyboard.press('Enter');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'result-heading');
   assert((await page.locator('#result-heading').boundingBox()).y >= (await bar.boundingBox()).height, 'Palette heading stays below pinned controls');
+  await page.locator('#view-examples').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'examples-heading');
+  const dockHeight = (await page.locator('.downloads').boundingBox()).height;
+  assert((await page.locator('#examples-heading').boundingBox()).y >= (await bar.boundingBox()).height + dockHeight, 'Examples heading clears both pinned rows');
   await page.locator('#open-history').click();
   assert((await page.locator('#session-history').boundingBox()).y >= (await bar.boundingBox()).height, 'History stays below pinned controls');
   await page.locator('#view-editor').focus(); await page.keyboard.press('Enter');
@@ -146,6 +150,73 @@ async function workspaceNavigation(page) {
   assert.deepEqual(await jsonPalette(page), palette, 'Workspace navigation must retain chosen colors');
   await page.evaluate(() => scrollTo(0, 0));
   assert(Math.abs((await bar.boundingBox()).y - initial.y) <= 1, 'Toolbar returns to its original place when scrolling back up');
+}
+async function downloadBarScrolling(page, label) {
+  await page.evaluate(() => scrollTo(0, 0));
+  const downloads = page.locator('.downloads');
+  const toolbar = page.locator('#editor-history-bar');
+  const initial = await downloads.boundingBox();
+  const palette = await jsonPalette(page);
+  const categoryTop = await page.locator('section.category').first().evaluate(e => e.getBoundingClientRect().top + scrollY);
+  const toolbarHeight = (await toolbar.boundingBox()).height;
+  await page.evaluate(y => scrollTo(0, y), initial.y - toolbarHeight - 24);
+  assert((await downloads.boundingBox()).y >= toolbarHeight + 23, 'Downloads scroll naturally before reaching the toolbar');
+  await page.evaluate(y => scrollTo(0, y), initial.y + 200);
+  const pinned = await downloads.boundingBox(), topBar = await toolbar.boundingBox();
+  assert(Math.abs(pinned.y - (topBar.y + topBar.height)) <= 1, 'Pinned downloads sit directly below workspace controls');
+  assert.equal(await page.locator('.downloads').count(), 1, 'Pinning keeps one current pair of download links');
+  for (const kind of ['pdf', 'json']) {
+    const target = await page.locator(`.downloads .${kind}`).boundingBox();
+    assert(target.height >= 44 && target.width >= 44, 'Pinned downloads retain full touch targets');
+    await visibleInViewport(page, `.downloads .${kind}`);
+  }
+  assert(Math.abs(await page.locator('section.category').first().evaluate(e => e.getBoundingClientRect().top + scrollY) - categoryTop) <= 1, 'Pinning downloads does not shift palette content');
+  await noOverflow(page, `${label} pinned downloads`);
+  await page.screenshot({path:path.join(artifacts,`${label}-downloads-pinned.png`)});
+  await page.evaluate(() => scrollTo(0, 0));
+  assert(Math.abs((await downloads.boundingBox()).y - initial.y) <= 1, 'Downloads return to their original place when scrolling back up');
+  assert.deepEqual(await jsonPalette(page), palette, 'Pinning and unpinning never change the palette');
+}
+async function previewMatchesPalette(page) {
+  const palette = await jsonPalette(page);
+  const expected = Object.entries({Primary:palette.primary,Secondary:palette.secondary || [],Neutrals:palette.neutrals,Supporting:palette.supporting})
+    .flatMap(([role, scales]) => scales.map((scale, index) => ({role,scale,target:`scale-${role.toLowerCase()}-${index}`})));
+  const actual = await page.locator('.preview-scale').evaluateAll(links => links.map(link => ({
+    target:link.dataset.scaleTarget, label:link.getAttribute('aria-label'), gradient:link.querySelector('.preview-strip').getAttribute('style')
+  })));
+  assert.equal(actual.length, expected.length, 'Preview includes every primary, secondary, neutral, and supporting scale');
+  for (let i=0;i<expected.length;i++) {
+    assert.equal(actual[i].target,expected[i].target);
+    assert(actual[i].label.includes(expected[i].role) && actual[i].label.includes(expected[i].scale.name));
+    for (const shade of expected[i].scale.shades) assert(actual[i].gradient.includes(shade.hex), 'Gradient uses all actual palette shades');
+    assert.equal(await page.locator(`#${actual[i].target}`).count(),1,'Preview link has a unique full-scale destination');
+  }
+}
+async function palettePreviewFlow(page, label) {
+  const palette = await jsonPalette(page);
+  await previewMatchesPalette(page);
+  const wide = page.viewportSize().width >= 1280;
+  if (wide) {
+    assert(await page.locator('#palette-preview').isVisible());
+    assert.equal(await page.locator('#preview-toggle').isVisible(),false);
+    const rail=await page.locator('#palette-preview').boundingBox(), main=await page.locator('main').boundingBox();
+    assert(rail.width <= 64 && rail.x >= main.x+main.width,'Desktop preview stays in the margin without narrowing the editor');
+    await page.locator('.preview-scale').first().focus();
+    assert(await page.locator('#preview-hover-label').isVisible(),'Keyboard focus reveals the scale label');
+  } else {
+    assert.equal(await page.locator('#palette-preview').isVisible(),false);
+    await page.locator('#view-palette').click(); await page.locator('#preview-toggle').click();
+    assert.equal(await page.locator('#preview-toggle').getAttribute('aria-expanded'),'true');
+    assert(await page.locator('#palette-preview').isVisible());
+  }
+  await page.screenshot({path:path.join(artifacts,`${label}-palette-preview.png`)});
+  await page.locator('.preview-scale').first().click();
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'scale-primary-0');
+  const height=(await page.locator('#editor-history-bar').boundingBox()).height+(await page.locator('.downloads').boundingBox()).height;
+  assert((await page.locator('#scale-primary-0').boundingBox()).y>=height,'Scale jump clears both sticky rows');
+  if(!wide) assert.equal(await page.locator('#palette-preview').isVisible(),false,'Mobile preview closes after navigating');
+  assert.deepEqual(await jsonPalette(page),palette,'Preview navigation does not assign or change colors');
+  await page.locator('#view-editor').click(); await page.evaluate(()=>scrollTo(0,0));
 }
 async function runFlow(browser, deployment, baseURL, touch) {
   const context = await browser.newContext({viewport: {width: touch ? 390 : 1280, height: touch ? 844 : 900}, hasTouch: touch, isMobile: touch, ignoreHTTPSErrors: true});
@@ -170,6 +241,8 @@ async function runFlow(browser, deployment, baseURL, touch) {
   assert.equal(await page.getByRole('button', {name: 'Generate palette', exact: true}).count(), 0);
   assert.equal(await page.locator('#manual-apply').isVisible(), false);
   await workspaceNavigation(page);
+  await palettePreviewFlow(page, deployment);
+  await downloadBarScrolling(page, deployment);
 
   await upload(page, photo); await statusContains(page, 'Picture ready');
   const picture = page.locator('#picture');
@@ -269,11 +342,11 @@ async function runFlow(browser, deployment, baseURL, touch) {
     await page.setViewportSize({width,height});
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     await page.evaluate(()=>scrollTo(0,0));
-    for (const selector of ['#undo-palette','#redo-palette','#open-history','#view-editor','#view-palette']) {
+    for (const selector of ['#undo-palette','#redo-palette','#open-history','#view-editor','#view-palette','#view-examples']) {
       await visibleInViewport(page, selector);
       const target = await page.locator(selector).boundingBox();
       assert(target.width >= 44 && target.height >= 44, `${selector} keeps a full touch target`);
-      assert(Math.abs(target.y - (await page.locator('#undo-palette').boundingBox()).y) < 1, 'All five controls share one row on compact screens');
+      assert(Math.abs(target.y - (await page.locator('#undo-palette').boundingBox()).y) < 1, 'All six controls share one row on compact screens');
     }
     await noOverflow(page,`${deployment} compact ${width}x${height}`);
     for (const selector of ['h1','#picture-viewport','#picture-zoom-in','#picture-fit','#change-picture','#clear-picture','#magnifier','#pick-primary','#pick-secondary','#remove-sample-secondary']) await visibleInViewport(page,selector);
@@ -288,6 +361,7 @@ async function runFlow(browser, deployment, baseURL, touch) {
     assert.equal(await page.evaluate(() => document.activeElement.id), 'picture-title');
     assert((await page.locator('#picture-title').boundingBox()).y >= (await page.locator('#editor-history-bar').boundingBox()).height);
     assert.equal(await picture.evaluate(e => e.width), 320, 'Return to editor retains the working picture');
+    await downloadBarScrolling(page, `${deployment}-${width}x${height}`);
   }
   await page.setViewportSize({width:touch?390:1280,height:touch?844:900});
   await picture.scrollIntoViewIfNeeded();
@@ -503,6 +577,8 @@ async function runFlow(browser, deployment, baseURL, touch) {
 
   // Lazy static exports and native exports contain the current live state.
   const expected=await jsonPalette(page);
+  await page.locator('.json-view').scrollIntoViewIfNeeded();
+  assert(Math.abs((await page.locator('.downloads').boundingBox()).y - (await page.locator('#editor-history-bar').boundingBox()).height) <= 1, 'Exports remain pinned at the end of the palette');
   for(const kind of ['json','pdf']) {
     const pending=page.waitForEvent('download');
     await page.locator(`.downloads .${kind}`).click();
@@ -529,6 +605,30 @@ async function runFlow(browser, deployment, baseURL, touch) {
     const destination=path.join(artifacts,`${deployment}-named.${kind}`);await download.saveAs(destination);
     if(kind==='json') assert.equal(JSON.parse(await fs.readFile(destination,'utf8')).name,named.name);
   }
+  await previewMatchesPalette(page);
+  await page.locator('#view-editor').click();
+  assert.equal(await page.locator('#clear-secondary-collapsed').isVisible(),false,'Expanded fields hide the duplicate Remove');
+  await page.locator('#secondary-controls summary').click();
+  await page.locator('#clear-secondary-collapsed').waitFor({state:'visible'});
+  assert(await page.locator('#clear-secondary-collapsed').isVisible());
+  assert(await page.locator('#secondary-summary-color').isVisible());
+  assert.equal(await page.locator('#secondary-summary-color').getAttribute('title'),'#26E8C1');
+  await page.screenshot({path:path.join(artifacts,`${deployment}-secondary-collapsed.png`)});
+  const primaryBeforeRemove=(await jsonPalette(page)).primary;
+  await page.locator('#clear-secondary-collapsed').focus(); await page.keyboard.press('Enter');
+  await page.waitForFunction(()=>!JSON.parse(document.querySelector('.json-view pre').textContent).secondary);
+  assert.deepEqual((await jsonPalette(page)).primary,primaryBeforeRemove);
+  assert.equal(await page.locator('#secondary-summary-color').isVisible(),false);
+  assert.equal(await page.locator('#clear-secondary-collapsed').isVisible(),false);
+  assert.equal(await page.evaluate(()=>document.activeElement.closest('#secondary-controls')?.id),'secondary-controls');
+  await previewMatchesPalette(page);
+  await page.locator('#undo-palette').click(); await paletteHas(page,'secondary','#26E8C1');
+  assert.equal(await page.locator('#clear-secondary-collapsed').isVisible(),false);
+  await page.locator('#secondary-controls summary').click();
+  await page.locator('#clear-secondary-collapsed').waitFor({state:'visible'});
+  assert.equal(await page.locator('#secondary-summary-color').getAttribute('title'),'#26E8C1');
+  assert(await page.locator('#clear-secondary-collapsed').isVisible());
+  await previewMatchesPalette(page);
   await noOverflow(page,`${deployment} named pair`);
   assert.deepEqual(errors,[],`${deployment} browser errors`);
   await context.close();
@@ -551,6 +651,8 @@ try {
   await page.locator('#secondary-hex').fill('#E87924');
   await page.locator('#manual-apply').click();
   exactAnchor((await jsonPalette(page)).secondary[0], '#E87924');
+  await page.locator('.json-view').scrollIntoViewIfNeeded();
+  assert(Math.abs((await page.locator('.downloads').boundingBox()).y) <= 1, 'Native downloads pin at the viewport top when the workspace bar is hidden without JavaScript');
   await noOverflow(page, 'no JavaScript');
   await noJS.close();
   const exported = await (await fetch(`${nativeURL}palette.json?c=7C3AED&s=E87924`)).json();

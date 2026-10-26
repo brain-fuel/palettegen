@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"goforge.dev/palettegen/palette"
 	"goforge.dev/palettegen/web"
 	"net/url"
@@ -21,6 +22,74 @@ var livePending bool = false
 
 var liveCallback = js.Func{}
 
+var previewOpen bool = false
+
+func paintPreviewState() {
+	element("palette-preview").Get("classList").Call("toggle", "is-open", previewOpen)
+	var __gp_v0 any
+	if previewOpen {
+		__gp_v0 = "true"
+	} else {
+		__gp_v0 = "false"
+	}
+	element("preview-toggle").Call("setAttribute", "aria-expanded", __gp_v0)
+	show("preview-toggle", true)
+	show("preview-hover-label", false)
+}
+
+func togglePreview() {
+	previewOpen = !previewOpen
+	paintPreviewState()
+}
+
+func previewHint(event js.Value) any {
+	target := event.Get("target")
+	if (jsInt(target.Get("nodeType"))) == 1 {
+		link := target.Call("closest", "a[data-preview-label]")
+		if !link.IsNull() {
+			textAt("preview-hover-label", jsString(link.Call("getAttribute", "data-preview-label")))
+			show("preview-hover-label", true)
+		} else {
+			show("preview-hover-label", false)
+		}
+	}
+	return nil
+}
+
+func updateSecondarySummary() {
+	raw := valueAt("secondary-hex")
+	hasValue := strings.TrimSpace(raw) != ""
+	parsed := palette.ParseHex(raw)
+	valid := palette.ParsedOk(parsed)
+	var __gp_v1 string
+	if hasValue {
+		__gp_v1 = "Secondary color"
+	} else {
+		__gp_v1 = "Add a secondary color"
+	}
+	textAt("secondary-summary-label", __gp_v1)
+	show("secondary-optional", !hasValue)
+	show("secondary-summary-color", valid)
+	show("secondary-summary-hex", valid)
+	show("clear-secondary-collapsed", hasValue && !(jsBool(element("secondary-controls").Get("open"))))
+	element("secondary-section").Get("classList").Call("toggle", "has-secondary", hasValue)
+	if valid {
+		hex := palette.ParsedShade(parsed).Hex
+		swatch := element("secondary-summary-color")
+		swatch.Get("style").Set("background", hex)
+		swatch.Set("title", hex)
+		swatch.Call("setAttribute", "aria-label", "Secondary "+hex)
+		textAt("secondary-summary-hex", hex)
+	} else {
+		return
+	}
+}
+
+func secondaryToggled(event js.Value) any {
+	updateSecondarySummary()
+	return nil
+}
+
 func clearSampleAssignment() {
 	sampleRole = ""
 	assignedSampleHex = ""
@@ -35,13 +104,13 @@ func normalizedHex(raw string) string {
 }
 
 func roleHex(role string) string {
-	var __gp_v0 string
+	var __gp_v2 string
 	if role == "secondary" {
-		__gp_v0 = "secondary-hex"
+		__gp_v2 = "secondary-hex"
 	} else {
-		__gp_v0 = "primary-hex"
+		__gp_v2 = "primary-hex"
 	}
-	return normalizedHex(valueAt(__gp_v0))
+	return normalizedHex(valueAt(__gp_v2))
 }
 
 func hideSelectionNotice() {
@@ -58,39 +127,39 @@ func paintRole() {
 	}
 	element("pick-primary").Set("disabled", sampleHex == "")
 	element("pick-secondary").Set("disabled", sampleHex == "")
-	var __gp_v1 any
+	var __gp_v3 any
 	if sampleRole == "primary" {
-		__gp_v1 = "true"
+		__gp_v3 = "true"
 	} else {
-		__gp_v1 = "false"
+		__gp_v3 = "false"
 	}
-	element("pick-primary").Call("setAttribute", "aria-pressed", __gp_v1)
-	var __gp_v2 any
+	element("pick-primary").Call("setAttribute", "aria-pressed", __gp_v3)
+	var __gp_v4 any
 	if sampleRole == "secondary" {
-		__gp_v2 = "true"
+		__gp_v4 = "true"
 	} else {
-		__gp_v2 = "false"
+		__gp_v4 = "false"
 	}
-	element("pick-secondary").Call("setAttribute", "aria-pressed", __gp_v2)
-	var __gp_v3 string
+	element("pick-secondary").Call("setAttribute", "aria-pressed", __gp_v4)
+	var __gp_v5 string
 	if sampleRole == "secondary" {
-		__gp_v3 = "Fine-tuning Secondary"
+		__gp_v5 = "Fine-tuning Secondary"
 	} else {
-		var __gp_v4 string
+		var __gp_v6 string
 		if sampleRole == "primary" {
-			__gp_v4 = "Fine-tuning Primary"
+			__gp_v6 = "Fine-tuning Primary"
 		} else {
-			var __gp_v5 string
+			var __gp_v7 string
 			if sampleHex == "" {
-				__gp_v5 = "Choose a picture color"
+				__gp_v7 = "Choose a picture color"
 			} else {
-				__gp_v5 = "Preview · not assigned"
+				__gp_v7 = "Preview · not assigned"
 			}
-			__gp_v4 = __gp_v5
+			__gp_v6 = __gp_v7
 		}
-		__gp_v3 = __gp_v4
+		__gp_v5 = __gp_v6
 	}
-	textAt("sampling-role", __gp_v3)
+	textAt("sampling-role", __gp_v5)
 	element("history-role").Set("value", activeRole)
 }
 
@@ -106,13 +175,13 @@ func matchSampleAssignment() {
 		first := roleHex("primary") == sampleHex
 		second := roleHex("secondary") == sampleHex
 		if first != second {
-			var __gp_v6 string
+			var __gp_v8 string
 			if second {
-				__gp_v6 = "secondary"
+				__gp_v8 = "secondary"
 			} else {
-				__gp_v6 = "primary"
+				__gp_v8 = "primary"
 			}
-			sampleRole = __gp_v6
+			sampleRole = __gp_v8
 			assignedSampleHex = sampleHex
 		}
 		sampleGuidance()
@@ -143,13 +212,13 @@ func assignSample(role string) {
 		flushLive()
 		commitPalette()
 		sampleGuidance()
-		var __gp_v7 string
+		var __gp_v9 string
 		if role == "secondary" {
-			__gp_v7 = "Secondary"
+			__gp_v9 = "Secondary"
 		} else {
-			__gp_v7 = "Primary"
+			__gp_v9 = "Primary"
 		}
-		selectionNotice(__gp_v7, sampleHex)
+		selectionNotice(__gp_v9, sampleHex)
 	} else {
 		return
 	}
@@ -159,13 +228,13 @@ func finishSampleGesture() {
 	flushLive()
 	if sampleRole != "" && sampleHex != "" {
 		commitPalette()
-		var __gp_v8 string
+		var __gp_v10 string
 		if sampleRole == "secondary" {
-			__gp_v8 = "Secondary"
+			__gp_v10 = "Secondary"
 		} else {
-			__gp_v8 = "Primary"
+			__gp_v10 = "Primary"
 		}
-		selectionNotice(__gp_v8, sampleHex)
+		selectionNotice(__gp_v10, sampleHex)
 	} else {
 		paintHistory()
 		saveSession()
@@ -180,13 +249,13 @@ func flushLive() {
 		primaryRaw := valueAt("primary-hex")
 		primaryPicker := valueAt("primary-picker")
 		secondaryRaw := valueAt("secondary-hex")
-		var __gp_v9 string
+		var __gp_v11 string
 		if strings.TrimSpace(primaryRaw) == "" {
-			__gp_v9 = primaryPicker
+			__gp_v11 = primaryPicker
 		} else {
-			__gp_v9 = primaryRaw
+			__gp_v11 = primaryRaw
 		}
-		first := palette.ParseHex(__gp_v9)
+		first := palette.ParseHex(__gp_v11)
 		second := palette.ParseHex(secondaryRaw)
 		if palette.ParsedOk(first) && (strings.TrimSpace(secondaryRaw) == "" || palette.ParsedOk(second)) {
 			q := make(url.Values)
@@ -261,6 +330,15 @@ func historyRoleChanged(event js.Value) any {
 	return nil
 }
 
+// The download row stacks below the workspace bar, including safe-area
+// padding. Native pages without browser enhancement keep a zero offset.
+func syncToolbarHeight() {
+	height := jsInt(element("editor-history-bar").Get("offsetHeight"))
+	document.Get("body").Get("style").Call("setProperty", "--workspace-bar-height", fmt.Sprintf("%dpx", height))
+	downloads := document.Call("querySelector", ".downloads")
+	document.Get("body").Get("style").Call("setProperty", "--download-bar-height", fmt.Sprintf("%dpx", jsInt(downloads.Get("offsetHeight"))))
+}
+
 // Explicit workspace navigation keeps focus and the scroll destination in
 // sync. Scroll margins leave the heading clear of the pinned control bar.
 func focusWorkspace(id string) {
@@ -289,6 +367,11 @@ func viewEditor(event js.Value) any {
 	return nil
 }
 
+func viewExamples(event js.Value) any {
+	focusWorkspace("examples-heading")
+	return nil
+}
+
 func beforeLeaving(event js.Value) any {
 	flushLive()
 	saveSession()
@@ -299,12 +382,12 @@ func staticDownload(link js.Value) {
 	isPDF := jsBool(link.Get("classList").Call("contains", "pdf"))
 	anchor := document.Call("createElement", "a")
 	anchor.Set("href", web.ExportDataURL(current, isPDF))
-	var __gp_v10 string
+	var __gp_v12 string
 	if isPDF {
-		__gp_v10 = ".pdf"
+		__gp_v12 = ".pdf"
 	} else {
-		__gp_v10 = ".json"
+		__gp_v12 = ".json"
 	}
-	anchor.Set("download", web.FileStem(current)+__gp_v10)
+	anchor.Set("download", web.FileStem(current)+__gp_v12)
 	anchor.Call("click")
 }

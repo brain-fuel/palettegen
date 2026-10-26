@@ -1,6 +1,7 @@
 module main
 
 import "net/url"
+import "fmt"
 import "strings"
 import "syscall/js"
 import "goforge.dev/palettegen/palette"
@@ -11,6 +12,50 @@ let sampleRole : String := ""
 let assignedSampleHex : String := ""
 let livePending : Bool := false
 let liveCallback := js.Func {}
+let previewOpen : Bool := false
+
+let paintPreviewState () : Unit := do {
+  ((element "palette-preview").Get "classList").Call "toggle" "is-open" previewOpen;
+  (element "preview-toggle").Call "setAttribute" "aria-expanded" (if previewOpen then "true" else "false");
+  show "preview-toggle" true;
+  show "preview-hover-label" false
+}
+
+let togglePreview () : Unit := do { previewOpen := !previewOpen; paintPreviewState () }
+
+let previewHint (event : js.Value) : Any := do {
+  let target := event.Get "target";
+  if (target.Get "nodeType" |> jsInt) == 1 then do {
+    let link := target.Call "closest" "a[data-preview-label]";
+    if !(link.IsNull ()) then do {
+      textAt "preview-hover-label" (link.Call "getAttribute" "data-preview-label" |> jsString);
+      show "preview-hover-label" true
+    } else show "preview-hover-label" false
+  } else ();
+  nil
+}
+
+let updateSecondarySummary () : Unit := do {
+  let raw := valueAt "secondary-hex";
+  let hasValue := strings.TrimSpace raw != "";
+  let parsed := palette.ParseHex raw;
+  let valid := palette.ParsedOk parsed;
+  textAt "secondary-summary-label" (if hasValue then "Secondary color" else "Add a secondary color");
+  show "secondary-optional" (!hasValue);
+  show "secondary-summary-color" valid; show "secondary-summary-hex" valid;
+  show "clear-secondary-collapsed" (hasValue && !((element "secondary-controls").Get "open" |> jsBool));
+  ((element "secondary-section").Get "classList").Call "toggle" "has-secondary" hasValue;
+  if valid then do {
+    let hex := (palette.ParsedShade parsed).Hex;
+    let swatch := element "secondary-summary-color";
+    (swatch.Get "style").Set "background" hex;
+    swatch.Set "title" hex;
+    swatch.Call "setAttribute" "aria-label" ("Secondary " + hex);
+    textAt "secondary-summary-hex" hex
+  } else ()
+}
+
+let secondaryToggled (event : js.Value) : Any := do { updateSecondarySummary (); nil }
 
 let clearSampleAssignment () : Unit := do { sampleRole := ""; assignedSampleHex := "" }
 
@@ -135,6 +180,16 @@ let primaryFocused (event : js.Value) : Any := do { activeRole := "primary"; pai
 let secondaryFocused (event : js.Value) : Any := do { activeRole := "secondary"; paintRole (); nil }
 let historyRoleChanged (event : js.Value) : Any := do { activeRole := valueAt "history-role"; paintRole (); saveSession (); nil }
 
+-- The download row stacks below the workspace bar, including safe-area
+-- padding. Native pages without browser enhancement keep a zero offset.
+let syncToolbarHeight () : Unit := do {
+  let height := (element "editor-history-bar").Get "offsetHeight" |> jsInt;
+  ((document.Get "body").Get "style").Call "setProperty" "--workspace-bar-height" (fmt.Sprintf "%dpx" height);
+  let downloads := document.Call "querySelector" ".downloads";
+  ((document.Get "body").Get "style").Call "setProperty" "--download-bar-height" (fmt.Sprintf "%dpx" (downloads.Get "offsetHeight" |> jsInt));
+  ()
+}
+
 -- Explicit workspace navigation keeps focus and the scroll destination in
 -- sync. Scroll margins leave the heading clear of the pinned control bar.
 let focusWorkspace (id : String) : Unit := do {
@@ -153,6 +208,7 @@ let focusPalette () : Unit := focusWorkspace "result-heading"
 
 let viewPalette (event : js.Value) : Any := do { focusPalette (); nil }
 let viewEditor (event : js.Value) : Any := do { focusWorkspace "picture-title"; nil }
+let viewExamples (event : js.Value) : Any := do { focusWorkspace "examples-heading"; nil }
 
 let beforeLeaving (event : js.Value) : Any := do { flushLive (); saveSession (); nil }
 

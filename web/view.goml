@@ -29,11 +29,14 @@ let swatchCell (sh : palette.Shade) : String :=
     "<span class=\"sw-hsl\">" + hslLabel sh + "</span>" +
     "</div>"
 
-let scaleBlock (sc : palette.Scale) : String := do {
+let scaleID (role : String) (index : Int) : String :=
+  fmt.Sprintf "scale-%s-%d" (strings.ToLower role) index
+
+let scaleBlock (id : String) (sc : palette.Scale) : String := do {
   let mut cells := "";
   for _, sh in sc.Shades do { cells := cells + swatchCell sh };
   "<div class=\"scale\">" +
-    "<div class=\"scale-head\"><h4>" + sc.Name + "</h4>" +
+    "<div class=\"scale-head\"><h4 id=\"" + id + "\" tabindex=\"-1\">" + sc.Name + "</h4>" +
     "<span class=\"scale-range\">900 &#8594; 50 &#183; darkest to lightest</span></div>" +
     "<div class=\"scale-grid\">" + cells + "</div>" +
     "</div>"
@@ -41,10 +44,32 @@ let scaleBlock (sc : palette.Scale) : String := do {
 
 let categorySection (title : String) (caption : String) (scales : Slice palette.Scale) : String := do {
   let mut blocks := "";
-  for _, sc in scales do { blocks := blocks + scaleBlock sc };
+  for i, sc in scales do { blocks := blocks + scaleBlock (scaleID title i) sc };
   "<section class=\"category\"><h3>" + title + "</h3>" +
     "<p class=\"caption\">" + caption + "</p>" + blocks + "</section>"
 }
+
+let previewScales (role : String) (scales : Slice palette.Scale) : String := do {
+  let mut out := "";
+  for i, sc in scales do {
+    let mut stops := "";
+    for j, shade in sc.Shades do {
+      if j > 0 then do { stops := stops + "," } else ();
+      stops := stops + fmt.Sprintf "%s %.2f%%" shade.Hex (Float64 j * 100.0 / Float64 (len sc.Shades - 1))
+    };
+    let label := escapeHTML (role + " · " + sc.Name);
+    let target := scaleID role i;
+    out := out + "<a class=\"preview-scale\" href=\"#" + target + "\" data-scale-target=\"" + target + "\" data-preview-label=\"" + label + "\" aria-label=\"" + label + ", 900 to 50. Jump to full scale.\" title=\"" + label + " · 900 to 50\">" +
+      "<span class=\"preview-strip\" style=\"background:linear-gradient(to right," + stops + ")\" aria-hidden=\"true\"></span><span class=\"preview-name\">" + label + "</span></a>"
+  };
+  out
+}
+
+let palettePreview (p : palette.Palette) : String :=
+  "<aside id=\"palette-preview\" class=\"palette-preview\" aria-label=\"Live palette preview\"><p id=\"preview-hover-label\" class=\"preview-hover-label\" aria-hidden=\"true\" hidden></p>" +
+    "<div class=\"preview-range\"><span>900</span><span>50</span></div><nav class=\"preview-list\" aria-label=\"Jump to a color scale\">" +
+    previewScales "Primary" p.Primary + previewScales "Secondary" p.Secondary +
+    previewScales "Neutrals" p.Neutrals + previewScales "Supporting" p.Supporting + "</nav></aside>"
 
 -- ---- in-context demos: near-miss teachers -------------------------------
 
@@ -163,7 +188,7 @@ let formTile (p : palette.Palette) : String := do {
 let contextSection (p : palette.Palette) : String := do {
   if len p.Primary == 0 || len p.Neutrals == 0 then "" else do {
     if len p.Primary[0].Shades != 10 || len p.Neutrals[0].Shades != 10 then "" else
-      "<section class=\"category\"><h3>In context</h3>" +
+      "<section id=\"examples\" class=\"category\" aria-labelledby=\"examples-heading\"><h3 id=\"examples-heading\" tabindex=\"-1\">In context</h3>" +
         "<p class=\"caption\">A palette only proves itself in use. The same colors doing their actual jobs - and doing them on light and dark grounds alike.</p>" +
         "<div class=\"context-grid\">" +
         tile "On a light ground" (demoCard p false) +
@@ -211,12 +236,21 @@ let curatedOptions (selectedID : Int) : String := do {
 
 let secondaryFields (m : Model) : String := do {
   let expanded := if m.SecondaryHex != "" then " open" else "";
-  let hx := if palette.ParsedOk (palette.ParseHex m.SecondaryHex) then m.SecondaryHex else "#E87924";
-  "<details id=\"secondary-controls\" class=\"secondary-controls\"" + expanded + "><summary>Add a secondary color <span class=\"optional\">optional</span></summary>" +
+  let valid : Bool := palette.ParsedOk (palette.ParseHex m.SecondaryHex);
+  let hx := if valid then m.SecondaryHex else "#E87924";
+  let mut absent : String := " hidden";
+  if valid then do { absent := "" } else ();
+  let mut sectionClass : String := "secondary-section";
+  let mut summaryLabel : String := "Add a secondary color";
+  let mut optionalHidden : String := "";
+  if m.SecondaryHex != "" then do { sectionClass := sectionClass + " has-secondary"; summaryLabel := "Secondary color"; optionalHidden := " hidden" } else ();
+  "<div id=\"secondary-section\" class=\"" + sectionClass + "\"><details id=\"secondary-controls\" class=\"secondary-controls\"" + expanded + "><summary><span id=\"secondary-summary-label\">" + summaryLabel + "</span> " +
+    "<span id=\"secondary-optional\" class=\"optional\"" + optionalHidden + ">optional</span>" +
+    "<span id=\"secondary-summary-color\" class=\"secondary-summary-color\" style=\"background:" + hx + "\" title=\"" + hx + "\" role=\"img\" aria-label=\"Secondary " + hx + "\"" + absent + "></span><code id=\"secondary-summary-hex\"" + absent + ">" + hx + "</code></summary>" +
     "<div class=\"color-row\"><label id=\"secondary-picker-field\" class=\"field enhanced\" hidden><span>Secondary color</span><input id=\"secondary-picker\" type=\"color\" value=\"" + hx + "\"></label>" +
     "<label class=\"field hex-field\"><span>Secondary hex</span><input id=\"secondary-hex\" type=\"text\" name=\"s\" value=\"" + escapeHTML m.SecondaryHex + "\" placeholder=\"#E87924\" pattern=\"#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\" maxlength=\"7\" autocapitalize=\"off\" spellcheck=\"false\" aria-describedby=\"pairing-note\"></label>" +
     "<button id=\"clear-secondary\" type=\"button\" class=\"text-button enhanced\" hidden>Remove</button></div>" +
-    "<p id=\"pairing-note\" class=\"field-help feedback\" data-tone=\"" + PairingTone m + "\" aria-live=\"polite\">" + FeedbackHTML (PairingTone m) (PairingGuidance m) + "</p></details>"
+    "<p id=\"pairing-note\" class=\"field-help feedback\" data-tone=\"" + PairingTone m + "\" aria-live=\"polite\">" + FeedbackHTML (PairingTone m) (PairingGuidance m) + "</p></details><button id=\"clear-secondary-collapsed\" type=\"button\" class=\"text-button secondary-collapsed-remove\" aria-label=\"Remove secondary color\" hidden>Remove</button></div>"
 }
 
 let picturePanel () : String :=
@@ -306,8 +340,9 @@ let downloadLinks (m : Model) : String :=
 
 let ResultHTML (m : Model) : String :=
   "<div class=\"result-head\"><h2 id=\"result-heading\" tabindex=\"-1\">" + m.Pal.Name + "</h2>" +
-    "<div class=\"downloads\">" + downloadLinks m +
-    "</div></div>" +
+    "<button id=\"preview-toggle\" type=\"button\" class=\"ghost\" aria-expanded=\"false\" aria-controls=\"palette-preview\" hidden>Palette preview</button></div>" + palettePreview m.Pal +
+    "<nav class=\"downloads\" aria-label=\"Download palette\">" + downloadLinks m +
+    "</nav>" +
     "<p class=\"basis\">" + m.Pal.Basis + "</p>" +
     categorySection "Primary" "Your product's voice. Use these for primary actions, links, navigation, icons - the splashes of color that determine the overall look." m.Pal.Primary +
     (if len m.Pal.Secondary > 0 then categorySection "Secondary" palette.DescSecondary m.Pal.Secondary else "") +
@@ -365,7 +400,8 @@ let PageBody (m : Model) : String :=
     "<button id=\"undo-palette\" type=\"button\" class=\"ghost\" disabled>Undo</button><button id=\"redo-palette\" type=\"button\" class=\"ghost\" disabled>Redo</button>" +
     "<button id=\"open-history\" type=\"button\" class=\"ghost\" aria-expanded=\"false\" aria-controls=\"session-history\">History</button></div>" +
     "<div class=\"workspace-actions\"><button id=\"view-editor\" type=\"button\" class=\"ghost\" aria-label=\"Edit colors: return to picture and manual colors\" aria-controls=\"image-panel\">Edit<span class=\"toolbar-wide-label\"> colors</span></button>" +
-    "<button id=\"view-palette\" type=\"button\" class=\"primary\" aria-label=\"See palette\" aria-controls=\"palette-results\"><span class=\"toolbar-wide-label\">See </span>palette</button></div></nav>" +
+    "<button id=\"view-palette\" type=\"button\" class=\"primary\" aria-label=\"See palette\" aria-controls=\"palette-results\"><span class=\"toolbar-wide-label\">See </span>palette</button>" +
+    "<button id=\"view-examples\" type=\"button\" class=\"ghost\" aria-label=\"See examples\" aria-controls=\"examples\"><span class=\"toolbar-wide-label\">Examples</span><span class=\"toolbar-short-label\">Demos</span></button></div></nav>" +
     "<div id=\"model-note\" role=\"status\">" + NoteHTML m + "</div>" +
     controls m +
     "<div id=\"palette-results\" role=\"region\" aria-label=\"Your palette\">" + ResultHTML m + "</div><p id=\"result-status\" class=\"sr-only\" aria-live=\"polite\"></p>" +

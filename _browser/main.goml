@@ -79,7 +79,8 @@ let updatePairing () : Unit := do {
   let m := web.ModelFromValues q current.Embed;
   feedbackAt "pairing-note" (web.PairingTone m) (web.PairingGuidance m);
   (element "curated-secondary").Set "value" (valueAt "secondary-hex");
-  show "remove-sample-secondary" (strings.TrimSpace (valueAt "secondary-hex") != "")
+  show "remove-sample-secondary" (strings.TrimSpace (valueAt "secondary-hex") != "");
+  updateSecondarySummary ()
 }
 
 let setPrimary (hex : String) : Unit := do {
@@ -132,6 +133,7 @@ let renderModel (m : web.Model) (push : Bool) : Unit := do {
     ()
   } else ();
   paintRole ();
+  paintPreviewState (); syncToolbarHeight ();
   textAt "result-status" ("Palette ready: " + m.Pal.Name)
 }
 
@@ -462,7 +464,15 @@ let documentClick (event : js.Value) : Any := do {
     let oldPalette := target.Call "closest" "button[data-palette-key]";
     let oldColor := target.Call "closest" "button[data-history-color]";
     let theme := target.Call "closest" "#theme-links a";
-    if current.Embed && !(download.IsNull ()) then do { event.Call "preventDefault"; staticDownload download }
+    let previewToggle := target.Call "closest" "#preview-toggle";
+    let scaleLink := target.Call "closest" "a[data-scale-target]";
+    if !(previewToggle.IsNull ()) then do { event.Call "preventDefault"; togglePreview () }
+    else if !(scaleLink.IsNull ()) then do {
+      event.Call "preventDefault";
+      let id := scaleLink.Call "getAttribute" "data-scale-target" |> jsString;
+      previewOpen := false; paintPreviewState (); focusWorkspace id
+    }
+    else if current.Embed && !(download.IsNull ()) then do { event.Call "preventDefault"; staticDownload download }
     else if !(oldPalette.IsNull ()) then do {
       let key := oldPalette.Call "getAttribute" "data-palette-key" |> jsString;
       restorePalette key; commitPalette ()
@@ -529,6 +539,12 @@ let clearSecondary (event : js.Value) : Any := do {
   nil
 }
 
+let clearCollapsedSecondary (event : js.Value) : Any := do {
+  clearSecondary event;
+  ((element "secondary-controls").Call "querySelector" "summary").Call "focus";
+  nil
+}
+
 let fileChanged (event : js.Value) : Any := do {
   let files := (element "image-file").Get "files";
   if files.Length () > 0 then loadFile (files.Index 0) else ();
@@ -577,6 +593,7 @@ let assignSecondary (event : js.Value) : Any := do {
 let clearPicture (event : js.Value) : Any := do { removePicture (); nil }
 let chooseReplacement (event : js.Value) : Any := do { (element "image-file").Call "click"; nil }
 let resized (event : js.Value) : Any := do {
+  syncToolbarHeight ();
   if !((element "picture").Get "hidden" |> jsBool) then fitPicture () else ();
   nil
 }
@@ -605,6 +622,8 @@ let mount () : Unit := do {
   listen (element "primary-hex") "input" primaryHexChanged;
   listen (element "secondary-hex") "input" secondaryHexChanged;
   listen (element "clear-secondary") "click" clearSecondary;
+  listen (element "clear-secondary-collapsed") "click" clearCollapsedSecondary;
+  listen (element "secondary-controls") "toggle" secondaryToggled;
   listen (element "remove-sample-secondary") "click" clearSecondary;
   let primaryIDs : Slice String := ["primary-picker", "primary-hex"];
   let secondaryIDs : Slice String := ["secondary-picker", "secondary-hex"];
@@ -616,6 +635,9 @@ let mount () : Unit := do {
   listen (element "close-history") "click" closeHistory;
   listen (element "view-palette") "click" viewPalette;
   listen (element "view-editor") "click" viewEditor;
+  listen (element "view-examples") "click" viewExamples;
+  listen document "pointerover" previewHint;
+  listen document "focusin" previewHint;
   listen (element "history-role") "change" historyRoleChanged;
   listen (js.Global ()) "beforeunload" beforeLeaving;
   listen (element "image-file") "change" fileChanged;
@@ -648,9 +670,10 @@ let mount () : Unit := do {
   listen (js.Global ()) "resize" resized;
   listen (js.Global ()) "popstate" backOrForward;
   show "editor-history-bar" true;
+  syncToolbarHeight ();
   show "manual-apply" false; show "curated-apply" false;
   loadHistory (len os.Args > 1 && os.Args[1] != "");
-  updatePairing (); paintRole ()
+  updatePairing (); paintRole (); paintPreviewState ()
 }
 
 let main () : Unit := do {

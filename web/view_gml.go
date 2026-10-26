@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"goforge.dev/palettegen/palette"
 	"html"
-	_ "strings"
+	"strings"
 )
 
 func inkFor(sh palette.Shade) string {
@@ -31,20 +31,45 @@ func swatchCell(sh palette.Shade) string {
 	return "<div class=\"sw\" style=\"background:" + sh.Hex + ";color:" + inkFor(sh) + "\">" + "<span class=\"sw-hex\">" + sh.Hex + "</span>" + "<span class=\"sw-hsl\">" + hslLabel(sh) + "</span>" + "</div>"
 }
 
-func scaleBlock(sc palette.Scale) string {
+func scaleID(role string, index int) string {
+	return fmt.Sprintf("scale-%s-%d", strings.ToLower(role), index)
+}
+
+func scaleBlock(id string, sc palette.Scale) string {
 	cells := ""
 	for _, sh := range sc.Shades {
 		cells = cells + swatchCell(sh)
 	}
-	return "<div class=\"scale\">" + "<div class=\"scale-head\"><h4>" + sc.Name + "</h4>" + "<span class=\"scale-range\">900 &#8594; 50 &#183; darkest to lightest</span></div>" + "<div class=\"scale-grid\">" + cells + "</div>" + "</div>"
+	return "<div class=\"scale\">" + "<div class=\"scale-head\"><h4 id=\"" + id + "\" tabindex=\"-1\">" + sc.Name + "</h4>" + "<span class=\"scale-range\">900 &#8594; 50 &#183; darkest to lightest</span></div>" + "<div class=\"scale-grid\">" + cells + "</div>" + "</div>"
 }
 
 func categorySection(title string, caption string, scales []palette.Scale) string {
 	blocks := ""
-	for _, sc := range scales {
-		blocks = blocks + scaleBlock(sc)
+	for i, sc := range scales {
+		blocks = blocks + scaleBlock(scaleID(title, i), sc)
 	}
 	return "<section class=\"category\"><h3>" + title + "</h3>" + "<p class=\"caption\">" + caption + "</p>" + blocks + "</section>"
+}
+
+func previewScales(role string, scales []palette.Scale) string {
+	out := ""
+	for i, sc := range scales {
+		stops := ""
+		for j, shade := range sc.Shades {
+			if j > 0 {
+				stops = stops + ","
+			}
+			stops = stops + fmt.Sprintf("%s %.2f%%", shade.Hex, float64(j)*100.0/float64(len(sc.Shades)-1))
+		}
+		label := escapeHTML(role + " · " + sc.Name)
+		target := scaleID(role, i)
+		out = out + "<a class=\"preview-scale\" href=\"#" + target + "\" data-scale-target=\"" + target + "\" data-preview-label=\"" + label + "\" aria-label=\"" + label + ", 900 to 50. Jump to full scale.\" title=\"" + label + " · 900 to 50\">" + "<span class=\"preview-strip\" style=\"background:linear-gradient(to right," + stops + ")\" aria-hidden=\"true\"></span><span class=\"preview-name\">" + label + "</span></a>"
+	}
+	return out
+}
+
+func palettePreview(p palette.Palette) string {
+	return "<aside id=\"palette-preview\" class=\"palette-preview\" aria-label=\"Live palette preview\"><p id=\"preview-hover-label\" class=\"preview-hover-label\" aria-hidden=\"true\" hidden></p>" + "<div class=\"preview-range\"><span>900</span><span>50</span></div><nav class=\"preview-list\" aria-label=\"Jump to a color scale\">" + previewScales("Primary", p.Primary) + previewScales("Secondary", p.Secondary) + previewScales("Neutrals", p.Neutrals) + previewScales("Supporting", p.Supporting) + "</nav></aside>"
 }
 
 //goplus:enum MaybeScale
@@ -212,7 +237,7 @@ func contextSection(p palette.Palette) string {
 	if len(p.Primary[0].Shades) != 10 || len(p.Neutrals[0].Shades) != 10 {
 		return ""
 	}
-	return "<section class=\"category\"><h3>In context</h3>" + "<p class=\"caption\">A palette only proves itself in use. The same colors doing their actual jobs - and doing them on light and dark grounds alike.</p>" + "<div class=\"context-grid\">" + tile("On a light ground", demoCard(p, false)) + tile("On a dark ground", demoCard(p, true)) + tile("Semantic alerts", alertsTile(p)) + tile("Text hierarchy", typeTile(p)) + tile("Navigation", navTile(p)) + tile("Forms &amp; focus", formTile(p)) + "</div></section>"
+	return "<section id=\"examples\" class=\"category\" aria-labelledby=\"examples-heading\"><h3 id=\"examples-heading\" tabindex=\"-1\">In context</h3>" + "<p class=\"caption\">A palette only proves itself in use. The same colors doing their actual jobs - and doing them on light and dark grounds alike.</p>" + "<div class=\"context-grid\">" + tile("On a light ground", demoCard(p, false)) + tile("On a dark ground", demoCard(p, true)) + tile("Semantic alerts", alertsTile(p)) + tile("Text hierarchy", typeTile(p)) + tile("Navigation", navTile(p)) + tile("Forms &amp; focus", formTile(p)) + "</div></section>"
 }
 
 func themeLink(m Model, value string, label string) string {
@@ -281,14 +306,27 @@ func secondaryFields(m Model) string {
 		__gp_v10 = ""
 	}
 	expanded := __gp_v10
+	valid := palette.ParsedOk(palette.ParseHex(m.SecondaryHex))
 	var __gp_v11 string
-	if palette.ParsedOk(palette.ParseHex(m.SecondaryHex)) {
+	if valid {
 		__gp_v11 = m.SecondaryHex
 	} else {
 		__gp_v11 = "#E87924"
 	}
 	hx := __gp_v11
-	return "<details id=\"secondary-controls\" class=\"secondary-controls\"" + expanded + "><summary>Add a secondary color <span class=\"optional\">optional</span></summary>" + "<div class=\"color-row\"><label id=\"secondary-picker-field\" class=\"field enhanced\" hidden><span>Secondary color</span><input id=\"secondary-picker\" type=\"color\" value=\"" + hx + "\"></label>" + "<label class=\"field hex-field\"><span>Secondary hex</span><input id=\"secondary-hex\" type=\"text\" name=\"s\" value=\"" + escapeHTML(m.SecondaryHex) + "\" placeholder=\"#E87924\" pattern=\"#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\" maxlength=\"7\" autocapitalize=\"off\" spellcheck=\"false\" aria-describedby=\"pairing-note\"></label>" + "<button id=\"clear-secondary\" type=\"button\" class=\"text-button enhanced\" hidden>Remove</button></div>" + "<p id=\"pairing-note\" class=\"field-help feedback\" data-tone=\"" + PairingTone(m) + "\" aria-live=\"polite\">" + FeedbackHTML(PairingTone(m), PairingGuidance(m)) + "</p></details>"
+	absent := " hidden"
+	if valid {
+		absent = ""
+	}
+	sectionClass := "secondary-section"
+	summaryLabel := "Add a secondary color"
+	optionalHidden := ""
+	if m.SecondaryHex != "" {
+		sectionClass = sectionClass + " has-secondary"
+		summaryLabel = "Secondary color"
+		optionalHidden = " hidden"
+	}
+	return "<div id=\"secondary-section\" class=\"" + sectionClass + "\"><details id=\"secondary-controls\" class=\"secondary-controls\"" + expanded + "><summary><span id=\"secondary-summary-label\">" + summaryLabel + "</span> " + "<span id=\"secondary-optional\" class=\"optional\"" + optionalHidden + ">optional</span>" + "<span id=\"secondary-summary-color\" class=\"secondary-summary-color\" style=\"background:" + hx + "\" title=\"" + hx + "\" role=\"img\" aria-label=\"Secondary " + hx + "\"" + absent + "></span><code id=\"secondary-summary-hex\"" + absent + ">" + hx + "</code></summary>" + "<div class=\"color-row\"><label id=\"secondary-picker-field\" class=\"field enhanced\" hidden><span>Secondary color</span><input id=\"secondary-picker\" type=\"color\" value=\"" + hx + "\"></label>" + "<label class=\"field hex-field\"><span>Secondary hex</span><input id=\"secondary-hex\" type=\"text\" name=\"s\" value=\"" + escapeHTML(m.SecondaryHex) + "\" placeholder=\"#E87924\" pattern=\"#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\" maxlength=\"7\" autocapitalize=\"off\" spellcheck=\"false\" aria-describedby=\"pairing-note\"></label>" + "<button id=\"clear-secondary\" type=\"button\" class=\"text-button enhanced\" hidden>Remove</button></div>" + "<p id=\"pairing-note\" class=\"field-help feedback\" data-tone=\"" + PairingTone(m) + "\" aria-live=\"polite\">" + FeedbackHTML(PairingTone(m), PairingGuidance(m)) + "</p></details><button id=\"clear-secondary-collapsed\" type=\"button\" class=\"text-button secondary-collapsed-remove\" aria-label=\"Remove secondary color\" hidden>Remove</button></div>"
 }
 
 func picturePanel() string {
@@ -341,7 +379,7 @@ func ResultHTML(m Model) string {
 	} else {
 		__gp_v12 = ""
 	}
-	return "<div class=\"result-head\"><h2 id=\"result-heading\" tabindex=\"-1\">" + m.Pal.Name + "</h2>" + "<div class=\"downloads\">" + downloadLinks(m) + "</div></div>" + "<p class=\"basis\">" + m.Pal.Basis + "</p>" + categorySection("Primary", "Your product's voice. Use these for primary actions, links, navigation, icons - the splashes of color that determine the overall look.", m.Pal.Primary) + __gp_v12 + categorySection("Neutrals", "The workhorse. Most of your UI is this: text, backgrounds, panels, borders, secondary buttons.", m.Pal.Neutrals) + categorySection("Supporting", "The seasoning, used sparingly: success, warning and danger states, plus accents that keep the primary color special.", m.Pal.Supporting) + contextSection(m.Pal) + jsonSection(m)
+	return "<div class=\"result-head\"><h2 id=\"result-heading\" tabindex=\"-1\">" + m.Pal.Name + "</h2>" + "<button id=\"preview-toggle\" type=\"button\" class=\"ghost\" aria-expanded=\"false\" aria-controls=\"palette-preview\" hidden>Palette preview</button></div>" + palettePreview(m.Pal) + "<nav class=\"downloads\" aria-label=\"Download palette\">" + downloadLinks(m) + "</nav>" + "<p class=\"basis\">" + m.Pal.Basis + "</p>" + categorySection("Primary", "Your product's voice. Use these for primary actions, links, navigation, icons - the splashes of color that determine the overall look.", m.Pal.Primary) + __gp_v12 + categorySection("Neutrals", "The workhorse. Most of your UI is this: text, backgrounds, panels, borders, secondary buttons.", m.Pal.Neutrals) + categorySection("Supporting", "The seasoning, used sparingly: success, warning and danger states, plus accents that keep the primary color special.", m.Pal.Supporting) + contextSection(m.Pal) + jsonSection(m)
 }
 
 // Live previews avoid generating a PDF on every pointer movement. The static
@@ -385,7 +423,7 @@ func PageHead(m Model) string {
 }
 
 func PageBody(m Model) string {
-	return "<main>\n" + "<header class=\"hero\">" + "<div class=\"hero-top\"><h1>PaletteGen</h1>" + themeToggle(m) + "</div>" + "</header>\n" + "<nav id=\"editor-history-bar\" class=\"editor-history-bar\" aria-label=\"Live palette controls\" hidden>" + "<div class=\"recovery-actions\">" + "<button id=\"undo-palette\" type=\"button\" class=\"ghost\" disabled>Undo</button><button id=\"redo-palette\" type=\"button\" class=\"ghost\" disabled>Redo</button>" + "<button id=\"open-history\" type=\"button\" class=\"ghost\" aria-expanded=\"false\" aria-controls=\"session-history\">History</button></div>" + "<div class=\"workspace-actions\"><button id=\"view-editor\" type=\"button\" class=\"ghost\" aria-label=\"Edit colors: return to picture and manual colors\" aria-controls=\"image-panel\">Edit<span class=\"toolbar-wide-label\"> colors</span></button>" + "<button id=\"view-palette\" type=\"button\" class=\"primary\" aria-label=\"See palette\" aria-controls=\"palette-results\"><span class=\"toolbar-wide-label\">See </span>palette</button></div></nav>" + "<div id=\"model-note\" role=\"status\">" + NoteHTML(m) + "</div>" + controls(m) + "<div id=\"palette-results\" role=\"region\" aria-label=\"Your palette\">" + ResultHTML(m) + "</div><p id=\"result-status\" class=\"sr-only\" aria-live=\"polite\"></p>" + "\n<footer><details class=\"project-info\"><summary>About PaletteGen</summary>" + projectMeta() + "<p>Palettes and method from <em>Refactoring UI: Color Palettes</em> and <em>Refactoring UI</em> (Adam Wathan &amp; Steve Schoger). " + "Written in goml on the <a href=\"https://goforge.dev\">goforge</a> toolchain. " + "<a href=\"https://github.com/brain-fuel/palettegen/blob/main/LICENSE\">MIT licensed</a>.</p></details></footer>\n" + "</main>\n<div id=\"selection-notice\" class=\"selection-notice\" hidden aria-hidden=\"true\"></div>" + "<p id=\"selection-announcement\" class=\"sr-only\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>"
+	return "<main>\n" + "<header class=\"hero\">" + "<div class=\"hero-top\"><h1>PaletteGen</h1>" + themeToggle(m) + "</div>" + "</header>\n" + "<nav id=\"editor-history-bar\" class=\"editor-history-bar\" aria-label=\"Live palette controls\" hidden>" + "<div class=\"recovery-actions\">" + "<button id=\"undo-palette\" type=\"button\" class=\"ghost\" disabled>Undo</button><button id=\"redo-palette\" type=\"button\" class=\"ghost\" disabled>Redo</button>" + "<button id=\"open-history\" type=\"button\" class=\"ghost\" aria-expanded=\"false\" aria-controls=\"session-history\">History</button></div>" + "<div class=\"workspace-actions\"><button id=\"view-editor\" type=\"button\" class=\"ghost\" aria-label=\"Edit colors: return to picture and manual colors\" aria-controls=\"image-panel\">Edit<span class=\"toolbar-wide-label\"> colors</span></button>" + "<button id=\"view-palette\" type=\"button\" class=\"primary\" aria-label=\"See palette\" aria-controls=\"palette-results\"><span class=\"toolbar-wide-label\">See </span>palette</button>" + "<button id=\"view-examples\" type=\"button\" class=\"ghost\" aria-label=\"See examples\" aria-controls=\"examples\"><span class=\"toolbar-wide-label\">Examples</span><span class=\"toolbar-short-label\">Demos</span></button></div></nav>" + "<div id=\"model-note\" role=\"status\">" + NoteHTML(m) + "</div>" + controls(m) + "<div id=\"palette-results\" role=\"region\" aria-label=\"Your palette\">" + ResultHTML(m) + "</div><p id=\"result-status\" class=\"sr-only\" aria-live=\"polite\"></p>" + "\n<footer><details class=\"project-info\"><summary>About PaletteGen</summary>" + projectMeta() + "<p>Palettes and method from <em>Refactoring UI: Color Palettes</em> and <em>Refactoring UI</em> (Adam Wathan &amp; Steve Schoger). " + "Written in goml on the <a href=\"https://goforge.dev\">goforge</a> toolchain. " + "<a href=\"https://github.com/brain-fuel/palettegen/blob/main/LICENSE\">MIT licensed</a>.</p></details></footer>\n" + "</main>\n<div id=\"selection-notice\" class=\"selection-notice\" hidden aria-hidden=\"true\"></div>" + "<p id=\"selection-announcement\" class=\"sr-only\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>"
 }
 
 func RenderPage(m Model) string {
